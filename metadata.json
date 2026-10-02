@@ -1,0 +1,6 @@
+{
+  "name": "Airswiper - 闪光怪盗",
+  "description": "操控你的乌鸦展开U型抛物线俯冲，掠过欧式童话小镇，掠夺路人闪亮硬币与法式可颂，体验动感负重飞行与空中打包结算的欢乐物理冒险！",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

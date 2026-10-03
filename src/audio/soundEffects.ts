@@ -522,6 +522,37 @@ class SoundManager {
     }
   }
 
+  // Bicycle Bell chime ("Ding-ding!")
+  public playBicycleBell() {
+    if (!this.enabled) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      [1760, 2093].forEach((freq, idx) => {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+        gain.gain.setValueAtTime(0.12, now + idx * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.25);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + idx * 0.08);
+        osc.stop(now + idx * 0.08 + 0.28);
+      });
+    } catch {
+      // Ignored
+    }
+  }
+
+  // Near miss sound
+  public playNearMissWhistle() {
+    this.playBicycleBell();
+  }
+
   // Digestion Complete Gurgle ("Bloop-pop!")
   public playDigestionGurgle() {
     if (!this.enabled) return;

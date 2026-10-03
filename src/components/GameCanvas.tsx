@@ -507,6 +507,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         return;
       }
 
+      // 1b. Check if hovering above a moving traffic vehicle roof
+      const nearbyTrafficVeh = trafficVehiclesRef.current.find(
+        (v) => Math.abs(v.x - player.x) < v.width / 2 + 10 && player.y <= groundY - v.height + 40
+      );
+      if (nearbyTrafficVeh) {
+        player.y = groundY - nearbyTrafficVeh.height - 12;
+        player.state = 'PERCHED';
+        player.vx = 0;
+        player.vy = 0;
+        player.rotation = 0;
+        floatingTextsRef.current.push({
+          id: `perch-traffic-${Date.now()}`,
+          x: player.x,
+          y: player.y - 25,
+          text: `🐾 站在【${nearbyTrafficVeh.name}】车顶上随车兜风！`,
+          color: '#38bdf8',
+          alpha: 1,
+          scale: 1.25,
+          life: 50,
+        });
+        return;
+      }
+
       // 2. Check if hovering above a parked vintage car
       const nearbyCar = obstaclesRef.current.find(
         (obs) => obs.type === 'vintage_car' && player.x >= obs.x - 10 && player.x <= obs.x + obs.width + 10
@@ -882,6 +905,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         let vehicleUnderneath: TownTrafficVehicle | null = null;
 
         for (const veh of trafficVehiclesRef.current) {
+          // Bicycle riders are pedestrians on bikes, not broad elevated car roofs
+          if (veh.type === 'bicycle_rider') continue;
           const halfW = veh.width / 2 + 10;
           if (player.x >= veh.x - halfW && player.x <= veh.x + halfW) {
             const vRoofY = groundY - veh.height;
@@ -980,8 +1005,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             // "鸟会及时调整抛物线顶点位置" - timely adjust parabola lowest vertex when approaching elevated car roof!
             if (elevatedGroundY < groundY) {
               const distToRoof = elevatedGroundY - player.y;
-              if (distToRoof < 36 && distToRoof > -15) {
-                player.vy -= Math.max(0, (36 - distToRoof) * 0.22);
+              if (distToRoof < 48 && distToRoof > -15) {
+                player.vy -= Math.max(0, (48 - distToRoof) * 0.35);
               }
             }
 
@@ -993,7 +1018,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               player.state = 'REBOUNDING';
               soundManager.playReboundSwoosh();
               if (elevatedGroundY < groundY) {
-                player.vy = -Math.max(5.5, Math.abs(player.vy) * 0.82);
+                player.vy = -Math.max(6.2, Math.abs(player.vy) * 0.85);
                 floatingTextsRef.current.push({
                   id: `car-roof-bounce-${Date.now()}`,
                   x: player.x,
@@ -1034,8 +1059,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           if (vehicleUnderneath && player.y <= groundY - vehicleUnderneath.height + 6) {
             player.x += vehicleUnderneath.direction * vehicleUnderneath.speed;
             player.y = groundY - vehicleUnderneath.height - 12;
+          } else if (player.y < groundY - 35) {
+            // If the vehicle underneath moved away or perched in empty air
+            const stillSupported =
+              buildingsRef.current.some(
+                (b) =>
+                  player.x >= b.x - 20 &&
+                  player.x <= b.x + b.width + 20 &&
+                  Math.abs(player.y - (groundY - b.height)) < 24
+              ) ||
+              obstaclesRef.current.some(
+                (obs) =>
+                  player.x >= obs.x - 15 &&
+                  player.x <= obs.x + obs.width + 15 &&
+                  Math.abs(player.y - (groundY - obs.height)) < 28
+              );
+            if (!stillSupported) {
+              player.state = 'CRUISING';
+            }
           }
-        }
         } else if (player.state === 'STUNNED') {
           player.vx *= 0.92;
           player.vy += 0.2;
@@ -1076,9 +1118,37 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           player.facing = -1;
         }
 
-        if (player.y > groundY - 26 && player.state !== 'PERCHED') {
-          player.y = groundY - 26;
-          player.vy = -Math.abs(player.vy) * 0.5;
+        // Floor collision: elevated car roof is treated as elevated ground!
+        const effectiveFloorY = elevatedGroundY < groundY ? elevatedGroundY - 14 : groundY - 26;
+        if (player.y > effectiveFloorY && player.state !== 'PERCHED') {
+          player.y = effectiveFloorY;
+          player.vy = -Math.abs(player.vy) * 0.45;
+          // If softly landing on elevated car roof, transition into perched ride
+          if (
+            elevatedGroundY < groundY &&
+            Math.abs(player.vy) < 1.8 &&
+            (player.state === 'CRUISING' || player.state === 'REBOUNDING' || player.isExhausted)
+          ) {
+            player.state = 'PERCHED';
+            player.vy = 0;
+            player.vx = 0;
+            player.rotation = 0;
+            soundManager.playPerchLand();
+            floatingTextsRef.current.push({
+              id: `car-soft-land-${Date.now()}`,
+              x: player.x,
+              y: player.y - 28,
+              text: `🐾 降落在【${vehicleUnderneath?.name || '汽车'}】车顶！随车兜风！`,
+              color: '#38bdf8',
+              alpha: 1,
+              scale: 1.2,
+              life: 50,
+            });
+          }
+        }
+        if (player.y < 35) {
+          player.y = 35;
+          player.vy = Math.abs(player.vy) * 0.5;
         }
         if (player.y < 35) {
           player.y = 35;
@@ -1134,72 +1204,105 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
           if (veh.honkTimer > 0) veh.honkTimer--;
 
-          // Collision Check: Bird hit by moving vehicle! ("鸟可能被车撞飞，遵循抛物线")
+          // Collision Check: "只有在车头前才会被撞飞"
           const vehHalfW = veh.width / 2;
-          const isHitByCar =
-            player.x >= veh.x - vehHalfW - 8 &&
-            player.x <= veh.x + vehHalfW + 8 &&
-            player.y >= groundY - veh.height - 12 &&
-            player.y <= groundY;
+          const vehRoofY = groundY - veh.height;
 
-          if (isHitByCar && player.invincibleTimer <= 0) {
-            vehicleHitCountRef.current++;
-            soundManager.playHonkHorn();
-            soundManager.playVehicleCrash();
-            screenShakeRef.current = 16;
-            player.state = 'TUMBLING';
-            player.hitByVehicleTimer = 85;
-            player.invincibleTimer = 110;
-
-            // Parabolic Knockback Velocity: launched high along vehicle travel direction
-            player.vx = veh.direction * (12 + veh.speed * 4.5);
-            player.vy = -14 - Math.random() * 4;
-
-            // Feather particles scatter
-            for (let i = 0; i < 14; i++) {
-              particlesRef.current.push({
-                x: player.x,
-                y: player.y,
-                vx: (Math.random() - 0.5) * 8,
-                vy: -3 - Math.random() * 5,
-                size: 6,
-                color: '#334155',
+          // If bicycle rider: pleasant bell ringing near-miss, not violent vehicle crash!
+          if (veh.type === 'bicycle_rider') {
+            const isNearBike =
+              Math.abs(player.x - veh.x) < 32 &&
+              player.y >= groundY - veh.height &&
+              player.y <= groundY;
+            if (isNearBike && veh.honkTimer === 0) {
+              veh.honkTimer = 85;
+              soundManager.playNearMissWhistle();
+              floatingTextsRef.current.push({
+                id: `bike-bell-${Date.now()}`,
+                x: veh.x,
+                y: groundY - veh.height - 20,
+                text: '🔔 叮铃铃！小单车急按车铃避让！',
+                color: '#38bdf8',
                 alpha: 1,
-                life: 0,
-                maxLife: 45,
-                type: 'feather',
+                scale: 1.15,
+                life: 45,
               });
             }
+          } else {
+            // Motorized vehicles: only front hood/bumper collides!
+            // Front bumper position is based on vehicle travel direction:
+            // veh.direction === 1: front bumper is at veh.x + vehHalfW
+            // veh.direction === -1: front bumper is at veh.x - vehHalfW
+            const frontBumperX = veh.direction === 1 ? veh.x + vehHalfW : veh.x - vehHalfW;
+            const isFrontZone =
+              veh.direction === 1
+                ? player.x >= frontBumperX - 10 && player.x <= frontBumperX + 20
+                : player.x >= frontBumperX - 20 && player.x <= frontBumperX + 10;
 
-            floatingTextsRef.current.push({
-              id: `car-crash-${Date.now()}`,
-              x: player.x,
-              y: player.y - 45,
-              text: `💥 哎呀！被【${veh.name}】撞飞啦！`,
-              subtext: '沿抛物线高高弹飞，旋转翻滚中！',
-              color: '#ef4444',
-              alpha: 1,
-              scale: 1.35,
-              life: 65,
-            });
+            // Height must be strictly in front of radiator grille / front bumper (BELOW the roofline!)
+            // If player.y < vehRoofY + 14, the bird is on or skimming over the roof, which is elevated ground!
+            const isFrontHeight = player.y >= vehRoofY + 14 && player.y <= groundY + 2;
+            const isHitByCarFront = isFrontZone && isFrontHeight;
 
-            // File Citizen Complaint for traffic collision!
-            recordCitizenComplaint({
-              citizenName: veh.name,
-              role: '街头机动交通',
-              avatarIcon: '🚗',
-              title: `【重大车祸警情】飞禽超低空横穿被【${veh.name}】撞飞！`,
-              complaintText: `“这只乌鸦居然贴地滑翔，直接撞在车头上被弹飞到了半空中！车辆剧烈震颤，险些酿成连环追尾，全镇必须严加管束空中飞禽！”`,
-              incidentType: 'traffic_chaos',
-              location: `街头车道 [X: ${Math.round(veh.x)}]`,
-            });
-          } else if (
-            Math.abs(player.x - veh.x) < 95 &&
-            Math.abs(player.y - (groundY - veh.height)) < 55
-          ) {
-            if (veh.honkTimer === 0) {
-              veh.honkTimer = 90;
+            if (isHitByCarFront && player.invincibleTimer <= 0) {
+              vehicleHitCountRef.current++;
               soundManager.playHonkHorn();
+              soundManager.playVehicleCrash();
+              screenShakeRef.current = 16;
+              player.state = 'TUMBLING';
+              player.hitByVehicleTimer = 85;
+              player.invincibleTimer = 110;
+
+              // Parabolic Knockback Velocity: launched high along vehicle travel direction
+              player.vx = veh.direction * (12 + veh.speed * 4.5);
+              player.vy = -14 - Math.random() * 4;
+
+              // Feather particles scatter
+              for (let i = 0; i < 14; i++) {
+                particlesRef.current.push({
+                  x: player.x,
+                  y: player.y,
+                  vx: (Math.random() - 0.5) * 8,
+                  vy: -3 - Math.random() * 5,
+                  size: 6,
+                  color: '#334155',
+                  alpha: 1,
+                  life: 0,
+                  maxLife: 45,
+                  type: 'feather',
+                });
+              }
+
+              floatingTextsRef.current.push({
+                id: `car-crash-${Date.now()}`,
+                x: player.x,
+                y: player.y - 45,
+                text: `💥 哎呀！在车头前被【${veh.name}】撞飞啦！`,
+                subtext: '迎面相撞，沿抛物线高高弹飞翻滚中！',
+                color: '#ef4444',
+                alpha: 1,
+                scale: 1.35,
+                life: 65,
+              });
+
+              // File Citizen Complaint for traffic collision!
+              recordCitizenComplaint({
+                citizenName: veh.name,
+                role: '街头机动交通',
+                avatarIcon: '🚗',
+                title: `【重大车祸警情】飞禽低空横穿被【${veh.name}】车头撞飞！`,
+                complaintText: `“这只乌鸦居然贴地滑翔，直接迎面撞在车头保险杠上被弹飞到了半空中！车辆剧烈震颤，险些酿成连环追尾，全镇必须严加管束空中飞禽！”`,
+                incidentType: 'traffic_chaos',
+                location: `街头车道 [X: ${Math.round(veh.x)}]`,
+              });
+            } else if (
+              Math.abs(player.x - veh.x) < 75 &&
+              Math.abs(player.y - vehRoofY) < 35
+            ) {
+              if (veh.honkTimer === 0) {
+                veh.honkTimer = 90;
+                soundManager.playHonkHorn();
+              }
             }
           }
         });

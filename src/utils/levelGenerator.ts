@@ -5,6 +5,7 @@ import {
   Obstacle,
   TownBuilding,
   TownNPC,
+  TownSparrow,
   TownTrafficVehicle,
 } from '../types/game';
 
@@ -62,6 +63,7 @@ export interface TownSandboxMap {
   clouds: Cloud[];
   mailboxPos: { x: number; y: number };
   trafficVehicles: TownTrafficVehicle[];
+  sparrows: TownSparrow[];
 }
 
 export function generateSandboxTown(groundY: number): TownSandboxMap {
@@ -86,11 +88,11 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
   }
 
   // 2. Procedural Background Skyline (Amelicart "Ville de Pokapoka" Style - Dual Depth Layers)
-  // Far Layer (Soft distant spires, windmills, clock towers, rolling rooftops)
+  // Far Layer (Soft distant spires, windmills, clock towers, rolling rooftops - Scaled to match 70% foreground height)
   let farX = -150;
   while (farX < SANDBOX_MAP_WIDTH + 300) {
-    const farW = 200 + Math.floor(Math.random() * 120);
-    const farH = 340 + Math.floor(Math.random() * 140);
+    const farW = 240 + Math.floor(Math.random() * 120);
+    const farH = 480 + Math.floor(Math.random() * 140);
     const pal = BG_PALETTES[Math.floor(Math.random() * BG_PALETTES.length)];
     const roll = Math.random();
     const roofType: BackgroundBuilding['roofType'] =
@@ -106,7 +108,7 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
       roofColor: pal.roof,
       roofType,
       dormers: [],
-      chimney: Math.random() > 0.4 ? { x: farW * 0.7, height: 45, hasSmoke: true } : undefined,
+      chimney: Math.random() > 0.4 ? { x: farW * 0.7, height: 55, hasSmoke: true } : undefined,
       layer: 'far',
       feature,
     });
@@ -116,17 +118,17 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
   // Mid Layer (Dense townhouses, half-timbered facades, dormer attics, puffing chimneys)
   let bgX = -120;
   while (bgX < SANDBOX_MAP_WIDTH + 260) {
-    const bgW = 180 + Math.floor(Math.random() * 80);
-    const bgH = 310 + Math.floor(Math.random() * 110);
+    const bgW = 210 + Math.floor(Math.random() * 90);
+    const bgH = 430 + Math.floor(Math.random() * 90);
     const pal = BG_PALETTES[Math.floor(Math.random() * BG_PALETTES.length)];
     const roll = Math.random();
     const roofType: BackgroundBuilding['roofType'] =
       roll < 0.45 ? 'mansard' : roll < 0.8 ? 'gable_timber' : 'spire';
 
-    const dormerCount = Math.max(1, Math.floor(bgW / 60));
+    const dormerCount = Math.max(1, Math.floor(bgW / 65));
     const dormers = [];
     for (let d = 0; d < dormerCount; d++) {
-      dormers.push({ x: 22 + d * 52, y: -48 });
+      dormers.push({ x: 25 + d * 56, y: -55 });
     }
 
     backgroundBuildings.push({
@@ -141,7 +143,7 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
         Math.random() > 0.25
           ? {
               x: bgW * 0.68,
-              height: 44 + Math.floor(Math.random() * 20),
+              height: 52 + Math.floor(Math.random() * 20),
               hasSmoke: Math.random() > 0.25,
             }
           : undefined,
@@ -152,19 +154,19 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     bgX += bgW - 25; // dense layered overlap
   }
 
-  // 3. West Gate (Left Boundary Arch & Tower)
+  // 3. West Gate (Left Boundary Arch & Tower - Scaled up)
   obstacles.push({
     id: 'west_town_gate',
-    x: 80,
-    y: groundY - 340,
-    width: 170,
-    height: 340,
+    x: 70,
+    y: groundY - 450,
+    width: 210,
+    height: 450,
     type: 'archway',
     passable: true,
     name: '西城门石塔',
   });
 
-  // 3. Procedural Town Blocks (Harmonized European Storybook Scale with rich facade details & window occupants)
+  // 3. Procedural Town Blocks (Scaled: Houses occupy ~70% of screen height ~440-480px, grand storefronts & window occupants)
   let curX = 320;
   const buildingTypes: TownBuilding['type'][] = ['bakery', 'cafe', 'clocktower', 'florist', 'bookshop', 'residence'];
   const occupantPool: ('grandpa' | 'girl' | 'baker' | 'cat' | 'reader' | 'lady')[] = [
@@ -176,23 +178,23 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     'lady',
   ];
 
-  while (curX < SANDBOX_MAP_WIDTH - 420) {
+  while (curX < SANDBOX_MAP_WIDTH - 440) {
     const bType = buildingTypes[Math.floor(Math.random() * buildingTypes.length)];
     const palette = BUILDING_COLORS[Math.floor(Math.random() * BUILDING_COLORS.length)];
     const roofColor = ROOF_COLORS[Math.floor(Math.random() * ROOF_COLORS.length)];
-    const bW = 300 + Math.floor(Math.random() * 90);
+    const bW = 340 + Math.floor(Math.random() * 80);
 
-    // Harmonized stories & heights (Human is ~65-72px, story is ~85-110px)
-    let bH = 320;
+    // Harmonized stories & heights (Occupies ~70% screen height: 440px - 520px!)
+    let bH = 450;
     let stories = 2;
     if (bType === 'clocktower') {
-      bH = 500 + Math.floor(Math.random() * 40);
+      bH = 590 + Math.floor(Math.random() * 40);
       stories = 4;
     } else if (bType === 'residence' || bType === 'bookshop') {
-      bH = 380 + Math.floor(Math.random() * 40);
+      bH = 495 + Math.floor(Math.random() * 35);
       stories = 3;
     } else if (bType === 'bakery' || bType === 'cafe' || bType === 'florist') {
-      bH = 310 + Math.floor(Math.random() * 30);
+      bH = 445 + Math.floor(Math.random() * 25);
       stories = 2;
     }
 
@@ -216,24 +218,26 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     // Window layout across upper stories (Human-proportioned windows with occupants & flower boxes!)
     const windows = [];
     const rows = Math.max(1, stories - 1);
-    const cols = Math.floor((bW - 40) / 64);
+    const cols = Math.floor((bW - 50) / 72);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const hasOccupant = Math.random() < 0.48;
+        const hasOccupant = Math.random() < 0.55;
         windows.push({
-          x: 28 + c * 64,
-          y: 44 + r * 76,
-          w: 36,
-          h: 48,
+          x: 32 + c * 72,
+          y: 52 + r * 94,
+          w: 42,
+          h: 58,
           lit: Math.random() > 0.25,
           occupant: hasOccupant ? occupantPool[Math.floor(Math.random() * occupantPool.length)] : undefined,
-          flowerBox: Math.random() > 0.25,
+          flowerBox: Math.random() > 0.2,
         });
       }
     }
 
     const isBakery = bType === 'bakery';
+    const buildingId = `building-${curX}-${bType}`;
     buildings.push({
+      id: buildingId,
       x: curX,
       width: bW,
       height: bH,
@@ -244,15 +248,22 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
       windows,
       type: bType,
       signText,
+      shopName: signText || (bType === 'residence' ? '欧式温馨公寓' : undefined),
       hasAwning,
       awningColor: isBakery ? '#fda4af' : undefined,
       hasPastryShowcase: isBakery,
       hasBalconyWithGirl: isBakery || Math.random() > 0.6,
       hasCatOnAwning: isBakery,
-      hasWroughtIronBalcony: isBakery || Math.random() > 0.5,
+      hasWroughtIronBalcony: isBakery || Math.random() > 0.45,
       hasGlassStorefront: hasGlass,
       stories,
       embeddedGlassSide: hasGlass ? embeddedSide : undefined,
+      doorX: curX + Math.floor(bW * 0.16),
+      doorWidth: 46,
+      doorHeight: 96,
+      doorOpenProgress: 0,
+      interiorWallpaper: ['#fef3c7', '#fed7aa', '#e0e7ff', '#fce7f3', '#f0fdf4'][Math.floor(Math.random() * 5)],
+      interiorLight: 'rgba(254, 240, 138, 0.42)',
     });
 
     // If bakery: place fresh butter croissants on display stand
@@ -381,9 +392,17 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
       });
     }
 
-    // Walking Citizens in front of buildings (With assigned names!)
-    if (Math.random() > 0.25) {
+    // Walking Citizens and Street Activities in front of buildings (With assigned names!)
+    if (Math.random() > 0.18) {
       const npcOptions: TownNPC['type'][] = [
+        'street_artist',
+        'cafe_waiter',
+        'accordionist',
+        'dog_walker',
+        'balloon_child',
+        'lady_shopper',
+        'policeman',
+        'baker_street',
         'gentleman_tulips',
         'girl_coffee',
         'girl_letter',
@@ -391,23 +410,95 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
         'townsman',
       ];
       const npcWalkType = npcOptions[Math.floor(Math.random() * npcOptions.length)];
-      const isDark = npcWalkType === 'gentleman_tulips' || npcWalkType === 'townsman';
+      const isDark =
+        npcWalkType === 'gentleman_tulips' ||
+        npcWalkType === 'townsman' ||
+        npcWalkType === 'policeman' ||
+        npcWalkType === 'cafe_waiter';
 
       npcs.push({
         id: `npc-walker-${curX}`,
         name: CITIZEN_NAMES[npcNameIdx++ % CITIZEN_NAMES.length],
         x: curX + bW * 0.5,
-        targetX: curX + bW * 0.5 + (Math.random() > 0.5 ? 120 : -120),
-        speed: 0.45 + Math.random() * 0.45,
+        targetX: curX + bW * 0.5 + (Math.random() > 0.5 ? 140 : -140),
+        speed: npcWalkType === 'balloon_child' ? 0.95 : 0.45 + Math.random() * 0.4,
         direction: Math.random() > 0.5 ? 1 : -1,
         type: npcWalkType,
         coatColor: isDark ? 'dark' : 'light',
         state: 'walking',
+        behaviorState: 'street_roaming',
+        homeBuildingId: buildingId,
+        routineTimer: 180 + Math.floor(Math.random() * 300),
         actionState: 'walking',
         startleTimer: 0,
         walkTimer: 180,
         hasLoot: false,
       });
+    }
+
+    // Occasional Parked Vintage Car alongside the curb
+    if (Math.random() < 0.28 && curX > 800 && curX < 3800) {
+      obstacles.push({
+        id: `parked-car-${curX}`,
+        x: curX + bW - 130,
+        y: groundY - 66,
+        width: 170,
+        height: 66,
+        type: 'vintage_car',
+        passable: true,
+        name: '路边停靠的复古轿车',
+        carColor: ['#1e3a8a', '#991b1b', '#166534', '#334155'][Math.floor(Math.random() * 4)],
+      });
+    }
+
+    // Procedural street flora beside building facades & storefronts (绣球、薰衣草、常春藤、月季、陶土柠檬钵、窗台花箱)
+    const plantCount = Math.random() < 0.85 ? (Math.random() < 0.45 ? 2 : 1) : 0;
+    for (let pi = 0; pi < plantCount; pi++) {
+      const plantTypePool: NonNullable<Obstacle['plantVariety']>[] = [
+        'planter_hydrangea',
+        'planter_lavender',
+        'wall_ivy',
+        'flowering_shrub',
+        'terracotta_pot',
+        'window_box',
+      ];
+      const chosenVariety = plantTypePool[Math.floor(Math.random() * plantTypePool.length)];
+      const seed = Math.floor(Math.random() * 10000) + 1;
+      const bloomColors = ['#38bdf8', '#f472b6', '#c084fc', '#ef4444', '#facc15', '#f8fafc', '#fb923c'];
+      const bloom = bloomColors[Math.floor(Math.random() * bloomColors.length)];
+      const secondaryBloom = bloomColors[Math.floor(Math.random() * bloomColors.length)];
+      const potStyles: NonNullable<Obstacle['potStyle']>[] = ['terracotta', 'stone', 'wooden_crate', 'glazed_blue'];
+      const pot = potStyles[Math.floor(Math.random() * potStyles.length)];
+
+      const plantX = curX + 22 + pi * 85 + Math.floor(Math.random() * 40);
+      if (plantX < curX + bW - 25) {
+        obstacles.push({
+          id: `plant-${curX}-${pi}`,
+          x: plantX,
+          y: groundY - 34,
+          width: chosenVariety === 'window_box' ? 44 : 38,
+          height: 34,
+          type: 'plant',
+          plantVariety: chosenVariety,
+          plantSeed: seed,
+          bloomColor: bloom,
+          secondaryBloomColor: secondaryBloom,
+          potStyle: pot,
+          passable: true,
+          name:
+            chosenVariety === 'planter_hydrangea'
+              ? '盛开法式绣球花坛'
+              : chosenVariety === 'planter_lavender'
+              ? '普罗旺斯薰衣草花钵'
+              : chosenVariety === 'wall_ivy'
+              ? '外墙攀援常春藤'
+              : chosenVariety === 'terracotta_pot'
+              ? '地中海陶土柠檬花钵'
+              : chosenVariety === 'window_box'
+              ? '临街鲜花窗台花槽'
+              : '精致修剪月季花灌木',
+        });
+      }
     }
 
     curX += bW + 45;
@@ -417,9 +508,23 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     // -------------------------------------------------------------
     const midRoll = Math.random();
 
-    // Central Fountain Square
+    // Central Fountain Square with flanking Tuscan Cypresses
     if (midRoll < 0.35) {
       const fountainX = curX + 90;
+
+      // Left Cypress tree
+      obstacles.push({
+        id: `cypress-left-${curX}`,
+        x: fountainX - 70,
+        y: groundY - 240,
+        width: 46,
+        height: 240,
+        type: 'tree',
+        treeVariety: 'cypress',
+        passable: true,
+        name: '喷泉广场常青柏树',
+      });
+
       obstacles.push({
         id: `fountain-${curX}`,
         x: fountainX,
@@ -429,6 +534,19 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
         type: 'fountain',
         passable: true,
         name: '中央喷泉池',
+      });
+
+      // Right Hydrangea Planter
+      obstacles.push({
+        id: `plant-fountain-${curX}`,
+        x: fountainX + 115,
+        y: groundY - 32,
+        width: 52,
+        height: 32,
+        type: 'plant',
+        plantVariety: 'planter_hydrangea',
+        passable: true,
+        name: '喷泉水池边绣球花坛',
       });
 
       // Brass Key on fountain ledge
@@ -459,9 +577,9 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
         sparkleTimer: 0,
       });
 
-      curX += 270;
+      curX += 280;
     }
-    // Park with Sleeping Grandpa and Apple Tree
+    // Park with Sleeping Grandpa and Procedural Tree (Plane tree, Cherry blossom, or Willow)
     else if (midRoll < 0.7) {
       const benchX = curX + 70;
       const isWatch = Math.random() > 0.5;
@@ -496,17 +614,39 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
         heldLootType: isWatch ? 'pocket_watch' : 'reading_glasses',
       });
 
-      // Big Apple Tree
+      // Procedural Park Tree with randomized species
+      const parkTreeVarieties: NonNullable<Obstacle['treeVariety']>[] = [
+        'french_plane',
+        'cherry_blossom',
+        'weeping_willow',
+        'citrus_tree',
+      ];
+      const selectedTreeVariety = parkTreeVarieties[Math.floor(Math.random() * parkTreeVarieties.length)];
       obstacles.push({
         id: `tree-${curX}`,
         x: benchX + 130,
         y: groundY - 260,
-        width: 110,
+        width: 120,
         height: 260,
         type: 'tree',
+        treeVariety: selectedTreeVariety,
+        plantSeed: Math.floor(Math.random() * 10000) + 1,
         passable: true,
         opacity: 1.0,
-        name: '公园大苹果树',
+        flowerColor:
+          selectedTreeVariety === 'cherry_blossom'
+            ? '#f472b6'
+            : selectedTreeVariety === 'citrus_tree'
+            ? '#facc15'
+            : '#ef4444',
+        name:
+          selectedTreeVariety === 'cherry_blossom'
+            ? '公园盛开樱花树'
+            : selectedTreeVariety === 'weeping_willow'
+            ? '公园柔美垂柳'
+            : selectedTreeVariety === 'citrus_tree'
+            ? '地中海金黄柠檬树'
+            : '公园法式悬铃木',
       });
 
       lootItems.push({
@@ -524,15 +664,28 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
 
       curX += 290;
     }
-    // Picnic Lawn with Yellow Blanket
+    // Picnic Lawn with Yellow Blanket & Blooming Cherry Tree
     else {
       const picnicX = curX + 70;
+
+      // Cherry blossom tree over picnic blanket
+      obstacles.push({
+        id: `picnic-tree-${curX}`,
+        x: picnicX - 25,
+        y: groundY - 250,
+        width: 110,
+        height: 250,
+        type: 'tree',
+        treeVariety: 'cherry_blossom',
+        passable: true,
+        name: '野餐草坪樱花树',
+      });
 
       lootItems.push({
         id: `loot-fork-${curX}`,
         type: 'silver_fork',
         placement: 'picnic_blanket',
-        x: picnicX + 22,
+        x: picnicX + 35,
         y: groundY - 26,
         width: 20,
         height: 20,
@@ -545,7 +698,7 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
         id: `loot-bike-coin-${curX}`,
         type: 'gold_coin',
         placement: 'bicycle_basket',
-        x: picnicX + 105,
+        x: picnicX + 115,
         y: groundY - 18,
         width: 20,
         height: 20,
@@ -584,16 +737,20 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     }
   }
 
-  // 4. Moving Street Traffic Fleet (Harmonized proportions: School Bus 92px, Van 74px, Car 52px, Cyclist 68px)
+  // 4. Moving Street Traffic Fleet (Harmonized proportions: School Bus 126px, Van 90px, Car 66px, Cyclist 82px)
+  // Two distinct lanes: 'near' (Eastbound +1) and 'far' (Westbound -1) to prevent gridlocks!
   const trafficVehicles: TownTrafficVehicle[] = [
     {
       id: 'veh-school-bus-1',
       x: 650,
-      y: groundY - 92,
-      width: 230,
-      height: 92,
+      y: groundY - 126,
+      width: 280,
+      height: 126,
       speed: 1.35,
+      currentSpeed: 1.35,
+      targetSpeed: 1.35,
       direction: 1,
+      lane: 'near',
       type: 'school_bus',
       name: '阳光小学明黄校车',
       color: '#facc15',
@@ -606,11 +763,14 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     {
       id: 'veh-police-car-1',
       x: 2150,
-      y: groundY - 56,
-      width: 145,
-      height: 56,
+      y: groundY - 68,
+      width: 175,
+      height: 68,
       speed: 1.85,
+      currentSpeed: 1.85,
+      targetSpeed: 1.85,
       direction: -1,
+      lane: 'far',
       type: 'police_car',
       name: '小镇巡逻警车',
       color: '#1e3a8a',
@@ -623,11 +783,14 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     {
       id: 'veh-postal-van-1',
       x: 3550,
-      y: groundY - 74,
-      width: 165,
-      height: 74,
+      y: groundY - 90,
+      width: 195,
+      height: 90,
       speed: 1.25,
+      currentSpeed: 1.25,
+      targetSpeed: 1.25,
       direction: 1,
+      lane: 'near',
       type: 'postal_van',
       name: '皇家特快邮政车',
       color: '#15803d',
@@ -640,11 +803,14 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     {
       id: 'veh-classic-sedan-1',
       x: 1350,
-      y: groundY - 52,
-      width: 140,
-      height: 52,
+      y: groundY - 66,
+      width: 170,
+      height: 66,
       speed: 1.5,
+      currentSpeed: 1.5,
+      targetSpeed: 1.5,
       direction: 1,
+      lane: 'near',
       type: 'classic_sedan',
       name: '藏青复古老爷车',
       color: '#1e293b',
@@ -657,11 +823,14 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     {
       id: 'veh-delivery-truck-1',
       x: 4650,
-      y: groundY - 84,
-      width: 190,
-      height: 84,
+      y: groundY - 108,
+      width: 235,
+      height: 108,
       speed: 1.2,
+      currentSpeed: 1.2,
+      targetSpeed: 1.2,
       direction: -1,
+      lane: 'far',
       type: 'delivery_truck',
       name: '法式面包坊配送货车',
       color: '#fef08a',
@@ -674,11 +843,14 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     {
       id: 'veh-bicycle-rider-1',
       x: 2850,
-      y: groundY - 68,
-      width: 68,
-      height: 68,
+      y: groundY - 82,
+      width: 80,
+      height: 82,
       speed: 1.6,
+      currentSpeed: 1.6,
+      targetSpeed: 1.6,
       direction: 1,
+      lane: 'near',
       type: 'bicycle_rider',
       name: '骑自行车的信使少年',
       color: '#0284c7',
@@ -691,11 +863,14 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     {
       id: 'veh-bicycle-rider-2',
       x: 4200,
-      y: groundY - 68,
-      width: 68,
-      height: 68,
+      y: groundY - 82,
+      width: 80,
+      height: 82,
       speed: 1.4,
+      currentSpeed: 1.4,
+      targetSpeed: 1.4,
       direction: -1,
+      lane: 'far',
       type: 'bicycle_rider',
       name: '采买法棍的单车少女',
       color: '#f43f5e',
@@ -707,7 +882,39 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     },
   ];
 
-  // 5. Recipient Mailbox Position (Placed around 76% of the town map)
+  // 5. Emergent Town Sparrows Flock (小镇自组织麻雀生态系统)
+  const sparrows: TownSparrow[] = [];
+  const sparrowClusters = [
+    { cx: 780, cy: groundY - 6, count: 6 },   // Near bakery & breadcrumbs
+    { cx: 1650, cy: groundY - 8, count: 5 },  // Near central square
+    { cx: 2450, cy: groundY - 6, count: 7 },  // Park with grandpa bench
+    { cx: 3200, cy: groundY - 7, count: 5 },  // Street cafe terrace
+    { cx: 3950, cy: groundY - 6, count: 6 },  // Picnic lawn
+  ];
+  let sparrowId = 0;
+  sparrowClusters.forEach((c) => {
+    for (let i = 0; i < c.count; i++) {
+      const sx = c.cx + (Math.random() - 0.5) * 80;
+      const isPerchedHigh = Math.random() < 0.25;
+      const sy = isPerchedHigh ? groundY - 95 - Math.random() * 40 : c.cy;
+      sparrows.push({
+        id: `sparrow-${sparrowId++}`,
+        x: sx,
+        y: sy,
+        vx: 0,
+        vy: 0,
+        facing: Math.random() > 0.5 ? 1 : -1,
+        wingPhase: Math.random() * Math.PI * 2,
+        state: isPerchedHigh ? 'perched' : 'pecking',
+        peckTimer: Math.floor(Math.random() * 60),
+        flyTimer: 0,
+        targetLandingY: groundY - 6,
+        perchType: isPerchedHigh ? 'roof' : 'ground',
+      });
+    }
+  });
+
+  // 6. Recipient Mailbox Position (Placed around 76% of the town map)
   const mailboxX = Math.round(SANDBOX_MAP_WIDTH * 0.76);
   obstacles.push({
     id: 'town_recipient_mailbox',
@@ -720,7 +927,7 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     name: '金色皇家邮筒',
   });
 
-  // 6. East Harbor & Lighthouse (Right Boundary)
+  // 7. East Harbor & Lighthouse (Right Boundary)
   obstacles.push({
     id: 'east_harbor_pier',
     x: SANDBOX_MAP_WIDTH - 260,
@@ -742,5 +949,6 @@ export function generateSandboxTown(groundY: number): TownSandboxMap {
     clouds,
     mailboxPos: { x: mailboxX, y: groundY - 76 },
     trafficVehicles,
+    sparrows,
   };
 }

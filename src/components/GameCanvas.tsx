@@ -7,6 +7,7 @@ import {
   CitizenComplaint,
   Cloud,
   CrowPlayer,
+  DroppedPhysicsItem,
   FloatingBalloonPacket,
   FloatingText,
   LootItemConfig,
@@ -20,6 +21,7 @@ import {
   TownBuilding,
   TownNewsHeadline,
   TownNPC,
+  TownSparrow,
   TownTrafficVehicle,
 } from '../types/game';
 import {
@@ -31,6 +33,7 @@ import {
   drawCloud,
   drawContextualLoot,
   drawCrowPlayer,
+  drawDroppedPhysicsItem,
   drawFloatingBalloonPacket,
   drawFloatingTexts,
   drawFountain,
@@ -40,10 +43,12 @@ import {
   drawPicnicBlanket,
   drawPoopDecal,
   drawPoopProjectile,
+  drawProceduralPlant,
   drawSlingshotAiming,
   drawStorefrontGlass,
   drawStreetlamp,
   drawTownNPC,
+  drawTownSparrow,
   drawTrafficVehicle,
   drawTree,
   drawVintageBicycle,
@@ -139,6 +144,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const lootItemsRef = useRef<ActiveLoot[]>([]);
   const obstaclesRef = useRef<Obstacle[]>([]);
   const npcsRef = useRef<TownNPC[]>([]);
+  const sparrowsRef = useRef<TownSparrow[]>([]);
+  const droppedItemsRef = useRef<DroppedPhysicsItem[]>([]);
   const cloudsRef = useRef<Cloud[]>([]);
   const mailboxPosRef = useRef<{ x: number; y: number }>({ x: 3000, y: 500 });
   const recentHitsRef = useRef<{ name: string; action: 'poop' | 'snatch'; timestamp: number }[]>([]);
@@ -156,6 +163,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const floatingTextsRef = useRef<FloatingText[]>([]);
 
   const cameraXRef = useRef<number>(0);
+  const cameraYRef = useRef<number>(0);
   const bankedScoreRef = useRef<number>(0);
   const carriedScoreRef = useRef<number>(0);
   const comboRef = useRef<number>(1);
@@ -318,8 +326,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Initialize or Reset Sandbox Town Map
   const initGameWorld = useCallback(() => {
     const canvas = canvasRef.current;
-    const height = canvas ? canvas.height : 600;
-    const groundY = height - 50;
+    const rect = canvas ? canvas.getBoundingClientRect() : null;
+    const height = rect && rect.height > 100 ? rect.height : 680;
+    const groundY = height - 55;
     const cruiseY = height * GAME_PHYSICS.CRUISE_RATIO;
 
     const town = generateSandboxTown(groundY);
@@ -330,6 +339,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     lootItemsRef.current = town.lootItems;
     obstaclesRef.current = town.obstacles;
     npcsRef.current = town.npcs;
+    sparrowsRef.current = town.sparrows || [];
+    droppedItemsRef.current = [];
     cloudsRef.current = town.clouds;
     mailboxPosRef.current = town.mailboxPos;
     recentHitsRef.current = [];
@@ -453,16 +464,108 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     });
   }, []);
 
-  // Perch or Take-off with Multi-Surface Detection (Roofs, NPC Heads, Cars, Streetlamps, Ground)
+  // Emergent Multi-tier Surface Contact Query (Prioritizes Elevated Surfaces: Roofs > Lamps > Vehicles > Ground)
+  const getPhysicalSurfacesAtX = useCallback((x: number, gY: number) => {
+    interface PhysicalSurface {
+      type: 'roof' | 'lamp' | 'vehicle' | 'npc' | 'ground';
+      name: string;
+      y: number; // landing Y coordinate (smaller is higher in sky)
+      heightAboveGround: number;
+      source?: any;
+      priority: number;
+    }
+    const surfaces: PhysicalSurface[] = [];
+
+    // 1. Building Roofs / Eaves (HIGHEST elevation: 420-590px above ground)
+    buildingsRef.current.forEach((b) => {
+      if (x >= b.x - 16 && x <= b.x + b.width + 16) {
+        const roofY = gY - b.height;
+        surfaces.push({
+          type: 'roof',
+          name: b.signText ? `【${b.signText}】屋檐` : '欧式建筑屋檐',
+          y: roofY,
+          heightAboveGround: b.height,
+          source: b,
+          priority: 100, // Highest!
+        });
+      }
+    });
+
+    // 2. Streetlamp Tops (~160-180px above ground)
+    obstaclesRef.current.forEach((obs) => {
+      if (obs.type === 'streetlamp') {
+        const lampX = obs.x + obs.width / 2;
+        if (Math.abs(lampX - x) <= 26) {
+          surfaces.push({
+            type: 'lamp',
+            name: '欧式铸铁街灯顶端',
+            y: gY - obs.height - 8,
+            heightAboveGround: obs.height + 8,
+            source: obs,
+            priority: 85,
+          });
+        }
+      }
+    });
+
+    // 3. Moving Traffic Vehicles & Parked Cars (~66-135px above ground)
+    trafficVehiclesRef.current.forEach((veh) => {
+      if (veh.type === 'bicycle_rider') return;
+      const halfW = veh.width / 2 + 10;
+      if (x >= veh.x - halfW && x <= veh.x + halfW) {
+        surfaces.push({
+          type: 'vehicle',
+          name: `【${veh.name}】车顶`,
+          y: gY - veh.height - 12,
+          heightAboveGround: veh.height + 12,
+          source: veh,
+          priority: 65,
+        });
+      }
+    });
+
+    obstaclesRef.current.forEach((obs) => {
+      if (obs.type === 'vintage_car') {
+        if (x >= obs.x - 10 && x <= obs.x + obs.width + 10) {
+          surfaces.push({
+            type: 'vehicle',
+            name: '复古轿车车顶',
+            y: gY - obs.height - 12,
+            heightAboveGround: obs.height + 12,
+            source: obs,
+            priority: 60,
+          });
+        }
+      }
+    });
+
+    // 4. Cobblestone Ground (Base level)
+    surfaces.push({
+      type: 'ground',
+      name: '石板路面',
+      y: gY - 22,
+      heightAboveGround: 22,
+      priority: 10,
+    });
+
+    // Strictly sort by Y ascending: lowest screen Y = highest elevation in sky!
+    // Roof (e.g. y=120) < Lamp (y=420) < Vehicle (y=490) < Ground (y=578)
+    surfaces.sort((a, b) => a.y - b.y);
+    return surfaces;
+  }, []);
+
+  // Perch or Take-off with Emergent Multi-Surface Detection (Priority: Roofs > Lamps > Vehicles > Ground)
   const triggerTogglePerch = useCallback(() => {
     const player = playerRef.current;
     const canvas = canvasRef.current;
-    const height = canvas ? canvas.height : 600;
-    const groundY = height - 50;
+    const rect = canvas ? canvas.getBoundingClientRect() : null;
+    const height = rect && rect.height > 100 ? rect.height : 680;
+    const groundY = height - 55;
 
     if (player.state === 'PERCHED') {
-      // Take off into flight!
+      // Take off into flight with natural upward impulse
       player.state = 'CRUISING';
+      player.isLandingDescent = false;
       player.vy = -6.5;
       player.vx = player.facing * GAME_PHYSICS.CRUISE_SPEED_BASE;
       soundManager.playReboundSwoosh();
@@ -470,138 +573,95 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         id: `takeoff-${Date.now()}`,
         x: player.x,
         y: player.y - 20,
-        text: '🕊️ 振翅起飞! [双向滑翔中]',
+        text: '🕊️ 振翅起飞! 重返蓝天滑翔',
         color: '#38bdf8',
         alpha: 1,
         scale: 1.15,
         life: 40,
       });
-    } else {
-      // Find nearest sensible surface to perch on:
-      soundManager.playPerchLand();
+      return;
+    }
+
+    // In flight: check candidate landing surfaces underneath the bird (Roofs > Lamps > Vehicles > Ground)
+    const surfaces = getPhysicalSurfacesAtX(player.x, groundY);
+    // Find highest surface within contact reach (player altitude near surface)
+    const reachableSurface = surfaces.find(
+      (s) => player.y >= s.y - 48 && player.y <= s.y + 28
+    );
+
+    if (reachableSurface) {
       player.state = 'PERCHED';
+      player.y = reachableSurface.y;
+      player.isLandingDescent = false;
       player.vx = 0;
       player.vy = 0;
       player.rotation = 0;
+      soundManager.playPerchLand();
 
-      // 1. Check if directly hovering above an NPC's head
-      const nearbyNpc = npcsRef.current.find(
-        (n) => Math.abs(n.x - player.x) < 32 && player.y <= groundY - 30
-      );
-      if (nearbyNpc) {
-        player.x = nearbyNpc.x;
-        player.y = groundY - 76;
-        nearbyNpc.state = 'startled';
-        nearbyNpc.startleTimer = 120;
+      if (reachableSurface.type === 'roof') {
         floatingTextsRef.current.push({
-          id: `perch-npc-${Date.now()}`,
+          id: `perch-roof-${Date.now()}`,
           x: player.x,
           y: player.y - 25,
-          text: '🐾 站在路人头顶上! [路人瑟瑟发抖]',
-          subtext: '按 [A/D] 左右试探，按 [P/O] 头顶拉屎',
+          text: `🐾 居高临下！站定在${reachableSurface.name} [A/D漫步，W/L起飞]`,
           color: '#facc15',
           alpha: 1,
           scale: 1.25,
           life: 55,
         });
-        return;
-      }
-
-      // 1b. Check if hovering above a moving traffic vehicle roof
-      const nearbyTrafficVeh = trafficVehiclesRef.current.find(
-        (v) => Math.abs(v.x - player.x) < v.width / 2 + 10 && player.y <= groundY - v.height + 40
-      );
-      if (nearbyTrafficVeh) {
-        player.y = groundY - nearbyTrafficVeh.height - 12;
-        player.state = 'PERCHED';
-        player.vx = 0;
-        player.vy = 0;
-        player.rotation = 0;
-        floatingTextsRef.current.push({
-          id: `perch-traffic-${Date.now()}`,
-          x: player.x,
-          y: player.y - 25,
-          text: `🐾 站在【${nearbyTrafficVeh.name}】车顶上随车兜风！`,
-          color: '#38bdf8',
-          alpha: 1,
-          scale: 1.25,
-          life: 50,
-        });
-        return;
-      }
-
-      // 2. Check if hovering above a parked vintage car
-      const nearbyCar = obstaclesRef.current.find(
-        (obs) => obs.type === 'vintage_car' && player.x >= obs.x - 10 && player.x <= obs.x + obs.width + 10
-      );
-      if (nearbyCar) {
-        player.y = groundY - 48;
-        floatingTextsRef.current.push({
-          id: `perch-car-${Date.now()}`,
-          x: player.x,
-          y: player.y - 25,
-          text: '🐾 站在复古汽车车顶! [A/D小步跳跃]',
-          color: '#38bdf8',
-          alpha: 1,
-          scale: 1.15,
-          life: 45,
-        });
-        return;
-      }
-
-      // 3. Check if near a streetlamp post top
-      const nearbyLamp = obstaclesRef.current.find(
-        (obs) => obs.type === 'streetlamp' && Math.abs(obs.x + obs.width / 2 - player.x) < 28
-      );
-      if (nearbyLamp) {
-        player.x = nearbyLamp.x + nearbyLamp.width / 2;
-        player.y = groundY - 120;
+      } else if (reachableSurface.type === 'lamp') {
         floatingTextsRef.current.push({
           id: `perch-lamp-${Date.now()}`,
           x: player.x,
           y: player.y - 25,
-          text: '🐾 停歇在欧式街灯顶端! [居高临下]',
+          text: '🐾 停歇在欧式街灯顶端! [居高临下视野开阔]',
           color: '#fbbf24',
-          alpha: 1,
-          scale: 1.15,
-          life: 45,
-        });
-        return;
-      }
-
-      // 4. Check if near a building roof
-      const nearbyBuilding = buildingsRef.current.find(
-        (b) => player.x >= b.x - 10 && player.x <= b.x + b.width + 10 && player.y <= groundY - b.height + 65
-      );
-      if (nearbyBuilding) {
-        player.y = groundY - nearbyBuilding.height - 12;
-        floatingTextsRef.current.push({
-          id: `perch-roof-${Date.now()}`,
-          x: player.x,
-          y: player.y - 25,
-          text: '🐾 站定在欧式建筑屋顶 [A/D漫步，L起飞]',
-          color: '#facc15',
           alpha: 1,
           scale: 1.2,
           life: 50,
         });
-        return;
+      } else if (reachableSurface.type === 'vehicle') {
+        floatingTextsRef.current.push({
+          id: `perch-traffic-${Date.now()}`,
+          x: player.x,
+          y: player.y - 25,
+          text: `🐾 停歇在${reachableSurface.name}随车兜风！`,
+          color: '#38bdf8',
+          alpha: 1,
+          scale: 1.25,
+          life: 55,
+        });
+      } else {
+        floatingTextsRef.current.push({
+          id: `perch-ground-${Date.now()}`,
+          x: player.x,
+          y: player.y - 25,
+          text: '🐾 落地停歇在石板路上 [A/D小步跳跃，W/L起飞]',
+          color: '#facc15',
+          alpha: 1,
+          scale: 1.15,
+          life: 45,
+        });
       }
-
-      // 5. Fallback: Cobblestone Sidewalk / Ground
-      player.y = groundY - 22;
-      floatingTextsRef.current.push({
-        id: `perch-ground-${Date.now()}`,
-        x: player.x,
-        y: player.y - 25,
-        text: '🐾 落地停歇在石板路上 [A/D小步跳跃，L起飞]',
-        color: '#facc15',
-        alpha: 1,
-        scale: 1.1,
-        life: 45,
-      });
+      return;
     }
-  }, []);
+
+    // High in the sky: naturally glide downwards towards the highest surface underneath (Roof > Lamp > Car > Ground)!
+    const targetSurface = surfaces[0] || { y: groundY - 22, name: '石板路面' };
+    player.state = 'DIVING';
+    player.isLandingDescent = true;
+    player.vy = Math.max(player.vy, 3.8);
+    floatingTextsRef.current.push({
+      id: `glide-descent-${Date.now()}`,
+      x: player.x,
+      y: player.y - 25,
+      text: `🪶 自然滑翔歇脚，瞄准偏高表面【${targetSurface.name}】...`,
+      color: '#38bdf8',
+      alpha: 1,
+      scale: 1.15,
+      life: 45,
+    });
+  }, [getPhysicalSurfacesAtX]);
 
   // Mail Delivery Action [D key]
   const triggerDeliverMail = useCallback(() => {
@@ -752,9 +812,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      playerRef.current.cruiseAltitudeY = canvas.height * GAME_PHYSICS.CRUISE_RATIO;
+      const logicalWidth = rect.width || 1200;
+      const logicalHeight = rect.height || 680;
+
+      canvas.width = Math.round(logicalWidth * dpr);
+      canvas.height = Math.round(logicalHeight * dpr);
+      canvas.style.width = `${logicalWidth}px`;
+      canvas.style.height = `${logicalHeight}px`;
+
+      playerRef.current.cruiseAltitudeY = logicalHeight * GAME_PHYSICS.CRUISE_RATIO;
     };
 
     handleResize();
@@ -777,9 +843,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const width = canvas.width;
-      const height = canvas.height;
-      const groundY = height - 50;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = canvas.width / (rect.width || 1) || 1;
+      const width = rect.width || 1200;
+      const height = rect.height || 680;
+      const WORLD_ZOOM = 1.22;
+      const viewW = width / WORLD_ZOOM;
+      const viewH = height / WORLD_ZOOM;
+      const groundY = height - 55;
       const cruiseY = height * GAME_PHYSICS.CRUISE_RATIO;
       const time = performance.now() / 1000;
 
@@ -898,33 +969,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         );
 
         // -------------------------------------------------------------
-        // ELEVATED GROUND & VEHICLE ROOF DETECTION
-        // "车顶棚被视为高一点的地面，鸟会及时调整抛物线顶点位置"
+        // ELEVATED PHYSICAL SURFACE DETECTION (Roofs > Lamps > Cars > Ground)
+        // "鸟应该优先落在偏高的面上，屋檐>车>地"
         // -------------------------------------------------------------
-        let elevatedGroundY = groundY;
+        const surfacesUnderPlayer = getPhysicalSurfacesAtX(player.x, groundY);
+        const highestSurface = surfacesUnderPlayer[0];
+        const elevatedGroundY = highestSurface ? highestSurface.y : groundY;
         let vehicleUnderneath: TownTrafficVehicle | null = null;
-
-        for (const veh of trafficVehiclesRef.current) {
-          // Bicycle riders are pedestrians on bikes, not broad elevated car roofs
-          if (veh.type === 'bicycle_rider') continue;
-          const halfW = veh.width / 2 + 10;
-          if (player.x >= veh.x - halfW && player.x <= veh.x + halfW) {
-            const vRoofY = groundY - veh.height;
-            if (vRoofY < elevatedGroundY) {
-              elevatedGroundY = vRoofY;
-              vehicleUnderneath = veh;
-            }
-          }
-        }
-        for (const obs of obstaclesRef.current) {
-          if (obs.type === 'vintage_car') {
-            if (player.x >= obs.x - 8 && player.x <= obs.x + obs.width + 8) {
-              const cRoofY = groundY - obs.height;
-              if (cRoofY < elevatedGroundY) {
-                elevatedGroundY = cRoofY;
-              }
-            }
-          }
+        if (
+          highestSurface &&
+          highestSurface.type === 'vehicle' &&
+          highestSurface.source &&
+          'speed' in highestSurface.source
+        ) {
+          vehicleUnderneath = highestSurface.source;
         }
 
         // Player State Machine (Supports Bidirectional Facing & Cruising)
@@ -936,61 +994,40 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           player.vy *= 0.82;
           player.rotation = (player.vy * 0.035) * player.facing;
         } else if (player.state === 'DIVING') {
-          if (player.isExhausted) {
-            // Exhausted: lift cancelled, strictly inherit momentum & force curve
-            player.vy += GAME_PHYSICS.GRAVITY * 1.1;
-            player.vx *= 0.99;
+          if (player.isLandingDescent || player.isExhausted) {
+            // Natural descent toward highest surface underneath (roofs > lamps > vehicles > ground)
+            player.vy += 0.22;
+            player.vy = Math.min(player.vy, 4.2);
+            player.vx *= 0.985;
             player.rotation = Math.atan2(player.vy, Math.abs(player.vx));
 
-            // Mid-arc eave or car roof landing
-            if (player.vy > 0) {
-              // 1. Check building eaves
-              buildingsRef.current.forEach((b) => {
-                const bRoofY = groundY - b.height;
-                if (
-                  player.x >= b.x - 20 &&
-                  player.x <= b.x + b.width + 20 &&
-                  player.y >= bRoofY - 14 &&
-                  player.y <= bRoofY + 30
-                ) {
-                  player.state = 'PERCHED';
-                  player.y = bRoofY;
-                  player.vx = 0;
-                  player.vy = 0;
-                  player.rotation = 0;
-                  soundManager.playPerchLand();
-                  floatingTextsRef.current.push({
-                    id: `eave-catch-${Date.now()}`,
-                    x: player.x,
-                    y: player.y - 30,
-                    text: `🪶 抓住【${b.signText || b.type}屋檐】停下歇脚！`,
-                    color: '#38bdf8',
-                    alpha: 1,
-                    scale: 1.2,
-                    life: 55,
-                  });
-                }
+            // Landing contact when intersecting the highest reachable surface
+            if (player.y >= elevatedGroundY - 14) {
+              player.state = 'PERCHED';
+              player.y = elevatedGroundY;
+              player.isLandingDescent = false;
+              player.vx = 0;
+              player.vy = 0;
+              player.rotation = 0;
+              soundManager.playPerchLand();
+              const perchLabel =
+                highestSurface.type === 'roof'
+                  ? `🐾 居高临下！停歇在【${highestSurface.name}】！[A/D漫步，W/L起飞]`
+                  : highestSurface.type === 'vehicle'
+                  ? `🐾 稳稳落下！停歇在【${highestSurface.name}】随车兜风！`
+                  : highestSurface.type === 'lamp'
+                  ? `🐾 停歇在【${highestSurface.name}】视野开阔！`
+                  : `🐾 落地停歇在石板路上 [A/D小步跳跃，W/L起飞]`;
+              floatingTextsRef.current.push({
+                id: `land-${Date.now()}`,
+                x: player.x,
+                y: elevatedGroundY - 28,
+                text: perchLabel,
+                color: highestSurface.type === 'roof' ? '#facc15' : '#38bdf8',
+                alpha: 1,
+                scale: 1.25,
+                life: 55,
               });
-
-              // 2. Check elevated car roof landing when exhausted
-              if (elevatedGroundY < groundY && player.y >= elevatedGroundY - 18 && player.y <= elevatedGroundY + 16) {
-                player.state = 'PERCHED';
-                player.y = elevatedGroundY - 12;
-                player.vx = 0;
-                player.vy = 0;
-                player.rotation = 0;
-                soundManager.playPerchLand();
-                floatingTextsRef.current.push({
-                  id: `car-roof-perch-exhaust-${Date.now()}`,
-                  x: player.x,
-                  y: elevatedGroundY - 30,
-                  text: `🐾 落在【${vehicleUnderneath?.name || '复古车'}】车顶！借车前行恢复体力！`,
-                  color: '#38bdf8',
-                  alpha: 1,
-                  scale: 1.25,
-                  life: 55,
-                });
-              }
             }
           } else {
             // Normal Parabolic dive
@@ -1002,28 +1039,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             const springLift = Math.pow(Math.max(0, depth), 1.25) * GAME_PHYSICS.SPRING_BUOYANCY_FACTOR;
             player.vy -= springLift;
 
-            // "鸟会及时调整抛物线顶点位置" - timely adjust parabola lowest vertex when approaching elevated car roof!
+            // Timely adjust parabola vertex when approaching elevated surface (roof / car)
             if (elevatedGroundY < groundY) {
-              const distToRoof = elevatedGroundY - player.y;
-              if (distToRoof < 48 && distToRoof > -15) {
-                player.vy -= Math.max(0, (48 - distToRoof) * 0.35);
+              const distToElevated = elevatedGroundY - player.y;
+              if (distToElevated < 48 && distToElevated > -15) {
+                player.vy -= Math.max(0, (48 - distToElevated) * 0.38);
               }
             }
 
             player.rotation = Math.atan2(player.vy, Math.abs(player.vx));
 
-            // Rebound trigger: responds to elevated ground (car roof is treated as elevated ground!)
-            const reboundYThreshold = elevatedGroundY < groundY ? elevatedGroundY - 18 : groundY - 35;
+            // Rebound trigger: responds to highest surface underneath (roof, car, or ground)
+            const reboundYThreshold = elevatedGroundY - 16;
             if (player.vy <= 0 || player.y >= reboundYThreshold) {
               player.state = 'REBOUNDING';
               soundManager.playReboundSwoosh();
-              if (elevatedGroundY < groundY) {
+              if (elevatedGroundY < groundY - 30) {
                 player.vy = -Math.max(6.2, Math.abs(player.vy) * 0.85);
                 floatingTextsRef.current.push({
-                  id: `car-roof-bounce-${Date.now()}`,
+                  id: `surface-bounce-${Date.now()}`,
                   x: player.x,
                   y: elevatedGroundY - 24,
-                  text: '🚗 车顶借力！抛物线顶点及时跃升！',
+                  text: `✨ ${highestSurface.name}借力！抛物线顶点及时跃升！`,
                   color: '#38bdf8',
                   alpha: 1,
                   scale: 1.25,
@@ -1059,23 +1096,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           if (vehicleUnderneath && player.y <= groundY - vehicleUnderneath.height + 6) {
             player.x += vehicleUnderneath.direction * vehicleUnderneath.speed;
             player.y = groundY - vehicleUnderneath.height - 12;
-          } else if (player.y < groundY - 35) {
-            // If the vehicle underneath moved away or perched in empty air
-            const stillSupported =
-              buildingsRef.current.some(
-                (b) =>
-                  player.x >= b.x - 20 &&
-                  player.x <= b.x + b.width + 20 &&
-                  Math.abs(player.y - (groundY - b.height)) < 24
-              ) ||
-              obstaclesRef.current.some(
-                (obs) =>
-                  player.x >= obs.x - 15 &&
-                  player.x <= obs.x + obs.width + 15 &&
-                  Math.abs(player.y - (groundY - obs.height)) < 28
-              );
-            if (!stillSupported) {
-              player.state = 'CRUISING';
+          } else {
+            // Check surface support underneath at current player.x
+            const surfaces = getPhysicalSurfacesAtX(player.x, groundY);
+            const currentHighest = surfaces[0];
+            if (currentHighest) {
+              // If bird is walking along the surface, smoothly match its elevation
+              if (Math.abs(player.y - currentHighest.y) < 32) {
+                player.y = currentHighest.y;
+              } else if (player.y < currentHighest.y - 32) {
+                // Stepped off the edge into empty air (e.g. walked off roof eave)
+                player.state = 'CRUISING';
+                player.vy = 2.0;
+                floatingTextsRef.current.push({
+                  id: `step-off-${Date.now()}`,
+                  x: player.x,
+                  y: player.y - 20,
+                  text: '🪶 漫步跃出屋檐，展翅重归滑翔！',
+                  color: '#38bdf8',
+                  alpha: 1,
+                  scale: 1.1,
+                  life: 35,
+                });
+              }
             }
           }
         } else if (player.state === 'STUNNED') {
@@ -1118,28 +1161,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           player.facing = -1;
         }
 
-        // Floor collision: elevated car roof is treated as elevated ground!
+        // Floor collision: elevated surface (roof / car) or cobblestones is treated as physical surface!
         const effectiveFloorY = elevatedGroundY < groundY ? elevatedGroundY - 14 : groundY - 26;
         if (player.y > effectiveFloorY && player.state !== 'PERCHED') {
           player.y = effectiveFloorY;
           player.vy = -Math.abs(player.vy) * 0.45;
-          // If softly landing on elevated car roof, transition into perched ride
-          if (
-            elevatedGroundY < groundY &&
-            Math.abs(player.vy) < 1.8 &&
-            (player.state === 'CRUISING' || player.state === 'REBOUNDING' || player.isExhausted)
-          ) {
+          if (player.isExhausted || player.isLandingDescent) {
             player.state = 'PERCHED';
+            player.isLandingDescent = false;
             player.vy = 0;
             player.vx = 0;
             player.rotation = 0;
             soundManager.playPerchLand();
             floatingTextsRef.current.push({
-              id: `car-soft-land-${Date.now()}`,
+              id: `floor-land-${Date.now()}`,
               x: player.x,
               y: player.y - 28,
-              text: `🐾 降落在【${vehicleUnderneath?.name || '汽车'}】车顶！随车兜风！`,
-              color: '#38bdf8',
+              text: `🐾 停歇在【${highestSurface.name}】！[A/D漫步，W/L起飞]`,
+              color: highestSurface.type === 'roof' ? '#facc15' : '#38bdf8',
               alpha: 1,
               scale: 1.2,
               life: 50,
@@ -1191,21 +1230,80 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // Update Moving Street Traffic Vehicles
+        // Update Moving Street Traffic Vehicles (Dual-Lane Anti-Gridlock System)
         trafficVehiclesRef.current.forEach((veh) => {
-          veh.x += veh.direction * veh.speed;
-          if (veh.x < -180) {
-            veh.x = SANDBOX_MAP_WIDTH + 140;
-          } else if (veh.x > SANDBOX_MAP_WIDTH + 180) {
-            veh.x = -140;
+          const vehHalfW = veh.width / 2;
+          const frontBumperX = veh.direction === 1 ? veh.x + vehHalfW : veh.x - vehHalfW;
+
+          // 1. Vehicle-to-Vehicle Safe Following Distance (Same Lane Only!)
+          const vehicleInFront = trafficVehiclesRef.current.find((other) => {
+            if (other.id === veh.id || other.lane !== veh.lane || other.direction !== veh.direction) return false;
+            const gap = veh.direction === 1
+              ? (other.x - other.width / 2) - frontBumperX
+              : frontBumperX - (other.x + other.width / 2);
+            return gap > 0 && gap < 95;
+          });
+
+          // 2. Pedestrian Crossing Yield (Only when pedestrian is actually crossing the roadway)
+          const pedestrianCrossing = npcsRef.current.find((npc) => {
+            if (npc.type === 'awning_cat' || npc.type === 'window_watcher' || npc.type === 'grandpa_bench' || npc.indoorBuildingId) return false;
+            const distInFront = veh.direction === 1 ? (npc.x - frontBumperX) : (frontBumperX - npc.x);
+            return distInFront > 0 && distInFront < 65 && Math.abs(npc.speed) > 0;
+          });
+
+          const shouldYield = Boolean(vehicleInFront || pedestrianCrossing);
+
+          if (shouldYield) {
+            veh.isBraking = true;
+            veh.yieldReason = vehicleInFront ? '🚗 保持跟车车距' : '🚗 礼让横穿行人';
+            const targetBrakeSpeed = vehicleInFront
+              ? Math.min(veh.speed * 0.45, (vehicleInFront.currentSpeed ?? vehicleInFront.speed) * 0.9)
+              : 0;
+            veh.currentSpeed = Math.max(targetBrakeSpeed, (veh.currentSpeed ?? veh.speed) - 0.14);
+
+            // Anti-gridlock safeguard: never deadlock permanently!
+            if (veh.currentSpeed < 0.2) {
+              veh.stuckTimer = (veh.stuckTimer || 0) + 1;
+              if (veh.stuckTimer > 70) {
+                if (veh.honkTimer === 0) {
+                  veh.honkTimer = 55;
+                  soundManager.playHonkHorn();
+                }
+                // Gentle crawl forward
+                veh.currentSpeed = 0.65;
+                veh.yieldReason = '📢 鸣笛缓速安全通过';
+                if (pedestrianCrossing) {
+                  pedestrianCrossing.x += veh.direction * 16;
+                }
+              }
+            } else {
+              veh.stuckTimer = 0;
+            }
+          } else {
+            veh.isBraking = false;
+            veh.yieldReason = undefined;
+            veh.stuckTimer = 0;
+            veh.currentSpeed = Math.min(veh.speed, (veh.currentSpeed ?? 0) + 0.06);
+          }
+
+          veh.x += veh.direction * (veh.currentSpeed ?? veh.speed);
+          if (veh.x < -200) {
+            veh.x = SANDBOX_MAP_WIDTH + 160;
+          } else if (veh.x > SANDBOX_MAP_WIDTH + 200) {
+            veh.x = -160;
           }
           if (veh.type === 'police_car') {
             veh.sirenPhase = (veh.sirenPhase + 0.18) % (Math.PI * 2);
           }
           if (veh.honkTimer > 0) veh.honkTimer--;
 
+          // Windshield Wiper Update
+          if (veh.wiperTimer && veh.wiperTimer > 0) {
+            veh.wiperTimer--;
+            veh.wiperPhase = (veh.wiperPhase || 0) + 0.18;
+          }
+
           // Collision Check: "只有在车头前才会被撞飞"
-          const vehHalfW = veh.width / 2;
           const vehRoofY = groundY - veh.height;
 
           // If bicycle rider: pleasant bell ringing near-miss, not violent vehicle crash!
@@ -1307,76 +1405,249 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         });
 
-        // Update Walking NPCs & Town Life Interactions
+        // Update Walking NPCs & Town Life Interactions (Emergent Social Ecology)
         npcsRef.current.forEach((npc) => {
+          // Timer decays
           if (npc.startleTimer > 0) {
             npc.startleTimer--;
             if (npc.startleTimer <= 0) npc.state = 'walking';
           }
+          if (npc.speechTimer && npc.speechTimer > 0) {
+            npc.speechTimer--;
+            if (npc.speechTimer <= 0) npc.speechText = undefined;
+          }
+          if (npc.lookUpTimer && npc.lookUpTimer > 0) npc.lookUpTimer--;
+          if (npc.cameraFlashTimer && npc.cameraFlashTimer > 0) npc.cameraFlashTimer--;
+          if (npc.dogBarkTimer && npc.dogBarkTimer > 0) {
+            npc.dogBarkTimer--;
+            if (npc.dogBarkTimer <= 0) npc.dogExcited = false;
+          }
+          if (npc.talkTimer && npc.talkTimer > 0) npc.talkTimer--;
 
-          // 1. Seeking shelter after hit by bird poop: runs to nearest building door to buy an umbrella
-          if (npc.actionState === 'seeking_shelter' && typeof npc.shelterTargetX === 'number') {
-            const dx = npc.shelterTargetX - npc.x;
-            npc.direction = dx > 0 ? 1 : -1;
-            npc.x += npc.direction * 1.6;
-            if (Math.abs(npc.x - npc.shelterTargetX) < 14) {
-              npc.actionState = 'entering_building';
-              npc.insideBuildingTimer = 85;
+          // Crow low-flight perception
+          const distToPlayer = Math.hypot(player.x - npc.x, player.y - (groundY - 50));
+          if (distToPlayer < 140 && player.y > groundY - 180) {
+            npc.lookUpTimer = 65;
+            if (!npc.speechText && Math.random() < 0.04) {
+              npc.speechText = ['天上有只大乌鸦！', '好帅气的黑羽展翅！', '看它在特技滑翔！'][Math.floor(Math.random() * 3)];
+              npc.speechTimer = 80;
+              if (npc.type === 'townsman' || npc.type === 'gentleman_tulips' || npc.type === 'lady_shopper') {
+                npc.cameraFlashTimer = 30; // camera snapshot!
+              }
             }
-          } else if (npc.actionState === 'entering_building') {
-            if (npc.insideBuildingTimer && npc.insideBuildingTimer > 0) {
-              npc.insideBuildingTimer--;
-              if (npc.insideBuildingTimer <= 0) {
-                // Emerges with a colorful umbrella!
-                npc.actionState = 'walking';
-                npc.holdingUmbrella = true;
-                npc.umbrellaColor = ['#38bdf8', '#f43f5e', '#a855f7', '#10b981', '#fbbf24'][
-                  Math.floor(Math.random() * 5)
-                ];
-                npc.hasPoopOnHead = false;
+          }
+
+          // Social Encounter: passing pedestrians greeting each other
+          if (npc.state === 'walking' && (!npc.talkTimer || npc.talkTimer <= 0)) {
+            const otherNpc = npcsRef.current.find(
+              (o) => o.id !== npc.id && o.state === 'walking' && (!o.talkTimer || o.talkTimer <= 0) && Math.abs(o.x - npc.x) < 36
+            );
+            if (otherNpc && Math.random() < 0.05) {
+              npc.talkTimer = 90;
+              otherNpc.talkTimer = 90;
+              const greetings = [
+                '早上好！',
+                '今天阳光真明媚！',
+                '小心天上的大鸟！',
+                '刚出炉的面包真香',
+                '散步真惬意呀',
+                '听说了吗？邮筒有怪鸟徘徊！',
+              ];
+              const pick = greetings[Math.floor(Math.random() * greetings.length)];
+              npc.speechText = pick;
+              npc.speechTimer = 85;
+            }
+          }
+
+          // Dog Walker & Corgi reaction to dropped food or crow
+          if (npc.type === 'dog_walker') {
+            const nearbyFood = droppedItemsRef.current.find((it) => it.onGround && Math.abs(it.x - npc.x) < 140);
+            if (nearbyFood && !npc.dogExcited) {
+              npc.dogExcited = true;
+              npc.dogBarkTimer = 90;
+              npc.speechText = '🐶 汪汪！小狗闻到了美食！';
+              npc.speechTimer = 75;
+            }
+          }
+
+          // Grandpa & Cafe Table: Breadcrumbs sharing when crow perches nearby
+          if ((npc.type === 'grandpa_bench' || npc.type === 'cafe_diner') && player.state === 'PERCHED') {
+            if (Math.abs(player.x - npc.x) < 45 && Math.abs(player.y - (groundY - 50)) < 40) {
+              if (player.stamina < player.maxStamina) {
+                player.stamina = player.maxStamina;
+                player.isExhausted = false;
                 floatingTextsRef.current.push({
-                  id: `umbrella-bought-${Date.now()}`,
-                  x: npc.x,
-                  y: groundY - 80,
-                  text: `🛍️ ${npc.name} 买了一把新洋伞撑着走！`,
-                  color: '#38bdf8',
+                  id: `breadcrumbs-${Date.now()}`,
+                  x: player.x,
+                  y: player.y - 30,
+                  text: `🥖 ${npc.name} 友善地递来了面包碎！体力完全恢复！`,
+                  color: '#facc15',
                   alpha: 1,
-                  scale: 1.15,
-                  life: 55,
+                  scale: 1.25,
+                  life: 50,
                 });
               }
             }
-          } else if (npc.actionState === 'buying_croissant' && typeof npc.shelterTargetX === 'number') {
-            const dx = npc.shelterTargetX - npc.x;
-            npc.direction = dx > 0 ? 1 : -1;
-            npc.x += npc.direction * 1.1;
-            if (Math.abs(npc.x - npc.shelterTargetX) < 16) {
-              npc.actionState = 'walking';
-              npc.heldLootType = 'croissant';
-              npc.hasLoot = true;
-              floatingTextsRef.current.push({
-                id: `croissant-bought-${Date.now()}`,
-                x: npc.x,
-                y: groundY - 75,
-                text: `🥐 ${npc.name} 买到了刚出炉的可颂！`,
-                color: '#f59e0b',
-                alpha: 1,
-                scale: 1.1,
-                life: 50,
-              });
-            }
-          } else if (npc.state === 'walking' && npc.speed > 0) {
-            npc.x += npc.direction * npc.speed;
-            if (Math.abs(npc.x - npc.targetX) < 10) {
-              npc.direction = npc.direction === 1 ? -1 : 1;
-              npc.targetX = npc.x + npc.direction * (60 + Math.random() * 100);
+          }
 
-              // Chance to walk to bakery to buy a fresh croissant!
-              if (!npc.hasLoot && !npc.holdingUmbrella && Math.random() < 0.22) {
-                const bakery = buildingsRef.current.find((b) => b.type === 'bakery');
-                if (bakery && Math.abs(npc.x - (bakery.x + bakery.width * 0.4)) < 300) {
-                  npc.actionState = 'buying_croissant';
-                  npc.shelterTargetX = bakery.x + bakery.width * 0.4;
+          // Street Artist: Crow model inspiration easter egg
+          if (npc.type === 'street_artist' && player.state === 'PERCHED') {
+            if (Math.abs(player.x - npc.x) < 55 && !npc.speechText) {
+              npc.speechText = '🎨 绝妙模特！黑羽速写完成！+200分';
+              npc.speechTimer = 100;
+              bankedScoreRef.current += 200;
+              soundManager.playTreasureRelease();
+              floatingTextsRef.current.push({
+                id: `artist-inspire-${Date.now()}`,
+                x: npc.x,
+                y: groundY - 100,
+                text: '🎨 成为街头画家的肖像模特！+200分！',
+                color: '#f43f5e',
+                alpha: 1,
+                scale: 1.3,
+                life: 60,
+              });
+              callbacksRef.current.onScoreUpdate(bankedScoreRef.current, carriedScoreRef.current, comboRef.current);
+            }
+          }
+
+          // -------------------------------------------------------------
+          // HAUNT THE HOUSE AUTONOMOUS CITIZEN BEHAVIOR TREE (屋内外自由进出系统)
+          // -------------------------------------------------------------
+          if (npc.type !== 'awning_cat' && npc.type !== 'grandpa_bench' && npc.type !== 'window_watcher') {
+            if (npc.routineTimer && npc.routineTimer > 0) {
+              npc.routineTimer--;
+            }
+
+            // 1. Behavior State: STREET_ROAMING
+            if (!npc.behaviorState || npc.behaviorState === 'street_roaming') {
+              if (npc.state === 'walking' && npc.speed > 0) {
+                npc.x += npc.direction * npc.speed;
+                if (Math.abs(npc.x - npc.targetX) < 12) {
+                  npc.direction = npc.direction === 1 ? -1 : 1;
+                  npc.targetX = npc.x + npc.direction * (70 + Math.random() * 120);
+                }
+              }
+
+              // Routine timer expired: citizen decides to visit a building!
+              if (npc.routineTimer !== undefined && npc.routineTimer <= 0 && buildingsRef.current.length > 0) {
+                const nearbyBuildings = buildingsRef.current.filter((b) => Math.abs(b.x - npc.x) < 480);
+                const targetB = nearbyBuildings.length > 0
+                  ? nearbyBuildings[Math.floor(Math.random() * nearbyBuildings.length)]
+                  : buildingsRef.current[Math.floor(Math.random() * buildingsRef.current.length)];
+
+                if (targetB) {
+                  npc.behaviorState = 'seeking_door';
+                  npc.indoorBuildingId = targetB.id;
+                  npc.targetDoorX = targetB.doorX || (targetB.x + 50);
+                }
+              }
+            }
+            // 2. Behavior State: SEEKING_DOOR
+            else if (npc.behaviorState === 'seeking_door' && typeof npc.targetDoorX === 'number') {
+              const dx = npc.targetDoorX - npc.x;
+              npc.direction = dx > 0 ? 1 : -1;
+              npc.x += npc.direction * (npc.speed > 0 ? npc.speed * 1.3 : 1.1);
+
+              if (Math.abs(npc.x - npc.targetDoorX) < 14) {
+                npc.behaviorState = 'entering_door';
+                npc.insideBuildingTimer = 40;
+              }
+            }
+            // 3. Behavior State: ENTERING_DOOR
+            else if (npc.behaviorState === 'entering_door') {
+              if (npc.insideBuildingTimer && npc.insideBuildingTimer > 0) {
+                npc.insideBuildingTimer--;
+                if (npc.insideBuildingTimer <= 0) {
+                  npc.behaviorState = 'inside_room';
+                  const targetB = buildingsRef.current.find((b) => b.id === npc.indoorBuildingId);
+                  const isShop = targetB && (targetB.type === 'bakery' || targetB.type === 'cafe' || targetB.type === 'bookshop' || targetB.type === 'florist');
+                  npc.indoorFloor = (isShop && Math.random() < 0.6) ? 0 : (Math.random() < 0.5 ? 1 : 2);
+                  npc.indoorTimer = 220 + Math.floor(Math.random() * 260);
+
+                  const activityText = npc.indoorFloor === 0
+                    ? `🏬 ${npc.name} 进店挑选商品了！`
+                    : `🏠 ${npc.name} 进屋上楼看窗外！`;
+                  floatingTextsRef.current.push({
+                    id: `enter-${npc.id}-${Date.now()}`,
+                    x: npc.x,
+                    y: groundY - 80,
+                    text: activityText,
+                    color: '#38bdf8',
+                    alpha: 0.9,
+                    scale: 1.1,
+                    life: 45,
+                  });
+                }
+              }
+            }
+            // 4. Behavior State: INSIDE_ROOM
+            else if (npc.behaviorState === 'inside_room') {
+              if (npc.indoorTimer && npc.indoorTimer > 0) {
+                npc.indoorTimer--;
+                if (npc.indoorTimer === 110 && (npc.indoorFloor === 1 || npc.indoorFloor === 2)) {
+                  npc.behaviorState = 'window_watching';
+                }
+                if (npc.indoorTimer <= 0) {
+                  npc.behaviorState = 'exiting_door';
+                  npc.insideBuildingTimer = 35;
+                }
+              }
+            }
+            // 5. Behavior State: WINDOW_WATCHING
+            else if (npc.behaviorState === 'window_watching') {
+              if (npc.indoorTimer && npc.indoorTimer > 0) {
+                npc.indoorTimer--;
+                if (npc.indoorTimer <= 0) {
+                  npc.behaviorState = 'exiting_door';
+                  npc.insideBuildingTimer = 35;
+                }
+              }
+            }
+            // 6. Behavior State: EXITING_DOOR
+            else if (npc.behaviorState === 'exiting_door') {
+              if (npc.insideBuildingTimer && npc.insideBuildingTimer > 0) {
+                npc.insideBuildingTimer--;
+                if (npc.insideBuildingTimer <= 0) {
+                  npc.indoorBuildingId = undefined;
+                  npc.indoorFloor = undefined;
+                  npc.behaviorState = 'street_roaming';
+                  npc.state = 'walking';
+                  npc.routineTimer = 280 + Math.floor(Math.random() * 320);
+                  npc.direction = Math.random() > 0.5 ? 1 : -1;
+                  npc.targetX = npc.x + npc.direction * (80 + Math.random() * 120);
+
+                  floatingTextsRef.current.push({
+                    id: `exit-${npc.id}-${Date.now()}`,
+                    x: npc.x,
+                    y: groundY - 75,
+                    text: `🚶 ${npc.name} 推门走上街头散步！`,
+                    color: '#a7f3d0',
+                    alpha: 0.9,
+                    scale: 1.05,
+                    life: 40,
+                  });
+                }
+              }
+            }
+            // 7. Behavior State: FLEEING_PANIC
+            else if (npc.behaviorState === 'fleeing_panic') {
+              if (typeof npc.targetDoorX === 'number') {
+                const dx = npc.targetDoorX - npc.x;
+                npc.direction = dx > 0 ? 1 : -1;
+                npc.x += npc.direction * 2.2;
+                if (Math.abs(dx) < 14) {
+                  npc.behaviorState = 'entering_door';
+                  npc.insideBuildingTimer = 30;
+                }
+              } else {
+                const closestB = buildingsRef.current.reduce(
+                  (c, b) => (!c || Math.abs(b.x - npc.x) < Math.abs(c.x - npc.x) ? b : c),
+                  buildingsRef.current[0]
+                );
+                if (closestB) {
+                  npc.targetDoorX = closestB.doorX || (closestB.x + 50);
+                  npc.indoorBuildingId = closestB.id;
                 }
               }
             }
@@ -1397,17 +1668,34 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               // Digestion queue: eating croissant digests into poop ammo!
               player.digestionQueueCount += 2;
 
-              // Max 3 treasures limit: auto-release 4th item! ("宝物达到三个后，获得第四个时，就会自动放飞")
+              // Max 3 treasures limit: auto-release 4th item as a dynamic physical drop!
               if (player.currentLoot.length >= 3) {
                 const released = player.currentLoot.shift();
                 if (released) {
                   soundManager.playTreasureRelease();
                   player.totalWeight -= released.weight;
+
+                  // Physical dropped item enters the living world!
+                  droppedItemsRef.current.push({
+                    id: `drop-${Date.now()}-${Math.random()}`,
+                    config: released,
+                    x: player.x,
+                    y: player.y,
+                    vx: player.facing * 2.5 + (Math.random() - 0.5) * 2,
+                    vy: 1.5 + Math.random() * 2,
+                    bounceCount: 0,
+                    onGround: false,
+                    lifeTimer: 720,
+                    rotation: 0,
+                    vRot: (Math.random() - 0.5) * 0.15,
+                  });
+
                   floatingTextsRef.current.push({
                     id: `release-${Date.now()}`,
                     x: player.x,
                     y: player.y - 35,
                     text: `🪶 爪子抓不下了(上限3件)！放飞了【${released.name}】✨`,
+                    subtext: '宝物掉落小镇街头，可重新俯冲拾取！',
                     color: '#fde047',
                     alpha: 1,
                     scale: 1.25,
@@ -1479,6 +1767,240 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
         });
+
+        // Update Building Door Animations (Dynamic door opening when citizens enter or exit)
+        buildingsRef.current.forEach((b) => {
+          const doorX = b.doorX || (b.x + 50);
+          const hasNPCAtDoor = npcsRef.current.some(
+            (n) => (n.behaviorState === 'entering_door' || n.behaviorState === 'exiting_door') && Math.abs(n.x - doorX) < 32
+          );
+          const targetOpen = hasNPCAtDoor ? 1.0 : 0.0;
+          b.doorOpenProgress = (b.doorOpenProgress || 0) + (targetOpen - (b.doorOpenProgress || 0)) * 0.16;
+        });
+
+        // -------------------------------------------------------------
+        // EMERGENT TOWN SPARROWS FLOCK DYNAMICS (自然不突变、永不消失、屋檐树梢栖息)
+        // -------------------------------------------------------------
+        sparrowsRef.current.forEach((sparrow) => {
+          if (sparrow.chirpTimer && sparrow.chirpTimer > 0) sparrow.chirpTimer--;
+
+          // Query physical surface directly beneath sparrow (roof, lamp, awning, bench, or ground)
+          const findLandingSurfaceY = (x: number): { y: number; type: 'roof' | 'lamp' | 'bench' | 'ground' } => {
+            const buildingUnder = buildingsRef.current.find((b) => x >= b.x && x <= b.x + b.width);
+            if (buildingUnder) {
+              return { y: groundY - buildingUnder.height - 4, type: 'roof' };
+            }
+            const lampUnder = obstaclesRef.current.find((obs) => obs.type === 'streetlamp' && Math.abs(x - obs.x) < 22);
+            if (lampUnder) {
+              return { y: groundY - 140, type: 'lamp' };
+            }
+            const benchUnder = obstaclesRef.current.find((obs) => obs.type === 'cafe_table' && Math.abs(x - obs.x) < 30);
+            if (benchUnder) {
+              return { y: groundY - 50, type: 'bench' };
+            }
+            return { y: groundY - 6, type: 'ground' };
+          };
+
+          if (sparrow.state === 'pecking') {
+            sparrow.peckTimer--;
+            if (sparrow.peckTimer <= 0) {
+              sparrow.x += sparrow.facing * (1.2 + Math.random() * 2.2);
+              if (Math.random() < 0.35) sparrow.facing = sparrow.facing === 1 ? -1 : 1;
+              sparrow.peckTimer = 35 + Math.floor(Math.random() * 60);
+            }
+
+            // Food Seeking: Forage towards dropped treats or crumbs
+            const nearbyDrop = droppedItemsRef.current.find((it) => it.onGround && Math.abs(it.x - sparrow.x) < 160);
+            if (nearbyDrop) {
+              sparrow.facing = nearbyDrop.x > sparrow.x ? 1 : -1;
+              sparrow.x += sparrow.facing * 0.8;
+            }
+
+            // Startle Threat Perception
+            const distToCrow = Math.hypot(player.x - sparrow.x, player.y - sparrow.y);
+            const nearSpeedingVeh = trafficVehiclesRef.current.some(
+              (v) => Math.abs(v.x - sparrow.x) < 65 && Math.abs(groundY - sparrow.y) < 30 && (v.currentSpeed ?? v.speed) > 0.8
+            );
+
+            if (distToCrow < 95 || nearSpeedingVeh) {
+              sparrow.state = 'flying';
+              sparrow.isFleeing = true;
+              sparrow.vx = (sparrow.x >= player.x ? 1 : -1) * (2.8 + Math.random() * 2.2);
+              sparrow.vy = -3.5 - Math.random() * 3.0;
+              sparrow.flyTimer = 90 + Math.floor(Math.random() * 80);
+              sparrow.facing = sparrow.vx > 0 ? 1 : -1;
+
+              // Flock reaction cascade: nearby sparrows also flutter up
+              sparrowsRef.current.forEach((neighbor) => {
+                if (neighbor.id !== sparrow.id && neighbor.state !== 'flying' && Math.hypot(neighbor.x - sparrow.x, neighbor.y - sparrow.y) < 85) {
+                  neighbor.state = 'flying';
+                  neighbor.vx = sparrow.vx * (0.8 + Math.random() * 0.4);
+                  neighbor.vy = sparrow.vy * (0.8 + Math.random() * 0.4);
+                  neighbor.flyTimer = 75 + Math.floor(Math.random() * 60);
+                  neighbor.facing = neighbor.vx > 0 ? 1 : -1;
+                }
+              });
+            }
+          } else if (sparrow.state === 'flying') {
+            sparrow.flyTimer--;
+            sparrow.x += sparrow.vx;
+            sparrow.y += sparrow.vy;
+            sparrow.vy += 0.05; // gentle gravity
+            sparrow.vx *= 0.99;
+            sparrow.wingPhase += 0.35;
+
+            // When flyTimer expires, transition to natural descending glide (DO NOT SNAP OR VANISH!)
+            if (sparrow.flyTimer <= 0) {
+              sparrow.state = 'descending';
+              const surf = findLandingSurfaceY(sparrow.x);
+              sparrow.targetLandingY = surf.y;
+              sparrow.perchType = surf.type;
+            }
+          } else if (sparrow.state === 'descending') {
+            // Smooth natural glide downward towards surface
+            const surf = findLandingSurfaceY(sparrow.x);
+            sparrow.targetLandingY = surf.y;
+            sparrow.perchType = surf.type;
+
+            sparrow.x += sparrow.vx;
+            sparrow.vx *= 0.97;
+            const dy = sparrow.targetLandingY - sparrow.y;
+            sparrow.vy = Math.min(1.8, Math.max(0.45, dy * 0.08));
+            sparrow.y += sparrow.vy;
+            sparrow.wingPhase += 0.22;
+
+            // Touchdown detection
+            if (sparrow.y >= sparrow.targetLandingY - 2) {
+              sparrow.y = sparrow.targetLandingY;
+              sparrow.vx = 0;
+              sparrow.vy = 0;
+              sparrow.isFleeing = false;
+              if (sparrow.perchType === 'ground') {
+                sparrow.state = 'pecking';
+                sparrow.peckTimer = 40 + Math.floor(Math.random() * 50);
+              } else {
+                sparrow.state = 'perched';
+                sparrow.perchTimer = 160 + Math.floor(Math.random() * 240);
+                sparrow.chirpTimer = 35;
+              }
+            }
+          } else if (sparrow.state === 'perched') {
+            if (sparrow.perchTimer && sparrow.perchTimer > 0) {
+              sparrow.perchTimer--;
+              if (Math.random() < 0.015 && (!sparrow.chirpTimer || sparrow.chirpTimer <= 0)) {
+                sparrow.chirpTimer = 30;
+              }
+              if (sparrow.perchTimer <= 0) {
+                sparrow.state = 'flying';
+                sparrow.facing = Math.random() > 0.5 ? 1 : -1;
+                sparrow.vx = sparrow.facing * (2.0 + Math.random() * 2.0);
+                sparrow.vy = -2.2 - Math.random() * 2.0;
+                sparrow.flyTimer = 80 + Math.floor(Math.random() * 70);
+              }
+            }
+
+            if (Math.hypot(player.x - sparrow.x, player.y - sparrow.y) < 75) {
+              sparrow.state = 'flying';
+              sparrow.vx = (sparrow.x >= player.x ? 1 : -1) * 3;
+              sparrow.vy = -2.8 - Math.random() * 2;
+              sparrow.flyTimer = 70 + Math.floor(Math.random() * 50);
+            }
+          }
+
+          // Smooth turn at town boundaries (DO NOT TELEPORT OR VANISH!)
+          if (sparrow.x < 120) {
+            sparrow.vx = Math.abs(sparrow.vx) || 1.8;
+            sparrow.facing = 1;
+            sparrow.x = 120;
+          } else if (sparrow.x > SANDBOX_MAP_WIDTH - 120) {
+            sparrow.vx = -(Math.abs(sparrow.vx) || 1.8);
+            sparrow.facing = -1;
+            sparrow.x = SANDBOX_MAP_WIDTH - 120;
+          }
+        });
+
+        // -------------------------------------------------------------
+        // DROPPED PHYSICS ITEMS SIMULATION (掉落物与物理连锁反应)
+        // -------------------------------------------------------------
+        droppedItemsRef.current.forEach((item) => {
+          item.lifeTimer--;
+          if (!item.onGround) {
+            item.x += item.vx;
+            item.y += item.vy;
+            item.vy += 0.32;
+            item.vx *= 0.985;
+            item.rotation += item.vRot;
+
+            // Check roof collisions
+            buildingsRef.current.forEach((b) => {
+              const bRoofY = groundY - b.height;
+              if (
+                item.x >= b.x &&
+                item.x <= b.x + b.width &&
+                item.y >= bRoofY - 8 &&
+                item.y <= bRoofY + 14 &&
+                item.vy > 0
+              ) {
+                item.y = bRoofY - 8;
+                item.bounceCount++;
+                if (item.bounceCount > 2 || Math.abs(item.vy) < 1.0) {
+                  item.onGround = true;
+                  item.vy = 0;
+                  item.vx = 0;
+                } else {
+                  item.vy = -item.vy * 0.45;
+                  item.vx *= 0.65;
+                }
+              }
+            });
+
+            // Ground bounce
+            if (item.y >= groundY - 14) {
+              item.y = groundY - 14;
+              item.bounceCount++;
+              if (item.bounceCount > 2 || Math.abs(item.vy) < 1.2) {
+                item.onGround = true;
+                item.vy = 0;
+                item.vx = 0;
+              } else {
+                item.vy = -item.vy * 0.45;
+                item.vx *= 0.7;
+              }
+            }
+          }
+
+          // Crow can dive down and retrieve the dropped item!
+          const distToCrow = Math.hypot(player.x - item.x, player.y - item.y);
+          if (distToCrow < 34 && player.currentLoot.length < 3) {
+            item.lifeTimer = 0; // consumed
+            player.currentLoot.push(item.config);
+            player.totalWeight += item.config.weight;
+            carriedScoreRef.current += item.config.points;
+            soundManager.playLootPickup(false, comboRef.current);
+            floatingTextsRef.current.push({
+              id: `retrieve-${Date.now()}`,
+              x: player.x,
+              y: player.y - 25,
+              text: `✨ 重新叼回了掉落的【${item.config.name}】！`,
+              color: '#38bdf8',
+              alpha: 1,
+              scale: 1.2,
+              life: 45,
+            });
+            callbacksRef.current.onScoreUpdate(bankedScoreRef.current, carriedScoreRef.current, comboRef.current);
+            callbacksRef.current.onWeightUpdate(player.totalWeight, player.birdConfig.maxWeight);
+            callbacksRef.current.onLootUpdate(
+              player.currentLoot.map((it) => ({
+                type: it.type,
+                points: it.points,
+                weight: it.weight,
+                name: it.name,
+                icon: it.icon,
+              }))
+            );
+          }
+        });
+        droppedItemsRef.current = droppedItemsRef.current.filter((it) => it.lifeTimer > 0);
 
         // Update Poop Projectiles & Check Collisions
         poopProjectilesRef.current.forEach((poop) => {
@@ -1658,6 +2180,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               ) {
                 poop.isSplattered = true;
                 veh.roofSplatCount++;
+                veh.wiperTimer = 220;
                 veh.poopDecals.push({
                   offsetX: poop.x - veh.x,
                   offsetY: 6,
@@ -2241,6 +2764,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 2. RENDERING PASS (Naif Storybook Sandbox)
       // ==========================================
       ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       if (screenShakeRef.current > 0) {
         const sx = (Math.random() - 0.5) * screenShakeRef.current;
@@ -2366,7 +2890,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           } else if (obs.type === 'archway') {
             drawArchway(ctx, obs.x, obs.y, obs.width, obs.height);
           } else if (obs.type === 'tree') {
-            drawTree(ctx, obs.x + obs.width / 2, groundY, obs.opacity ?? 1.0);
+            drawTree(ctx, obs, groundY, time);
+          } else if (obs.type === 'plant') {
+            drawProceduralPlant(ctx, obs, groundY, time);
           } else if (obs.type === 'vintage_car') {
             drawVintageCar(ctx, obs, groundY);
           } else if (obs.type === 'streetlamp') {
@@ -2393,6 +2919,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       npcsRef.current.forEach((npc) => {
         if (npc.x > camX - 100 && npc.x < camX + width + 100) {
           drawTownNPC(ctx, npc, groundY, time);
+        }
+      });
+
+      // Draw Emergent Town Sparrows Flock
+      sparrowsRef.current.forEach((sparrow) => {
+        if (sparrow.x > camX - 80 && sparrow.x < camX + width + 80) {
+          drawTownSparrow(ctx, sparrow, time);
+        }
+      });
+
+      // Draw Dropped Physics Loot Items
+      droppedItemsRef.current.forEach((item) => {
+        if (item.x > camX - 80 && item.x < camX + width + 80) {
+          drawDroppedPhysicsItem(ctx, item, time);
         }
       });
 
@@ -2464,9 +3004,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const dpr = canvas.width / rect.width;
-    const x = (e.clientX - rect.left) * dpr;
-    const y = (e.clientY - rect.top) * dpr;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
     const player = playerRef.current;
     player.isDragging = true;
@@ -2483,9 +3022,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const dpr = canvas.width / rect.width;
-    const x = (e.clientX - rect.left) * dpr;
-    const y = (e.clientY - rect.top) * dpr;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
     const dx = player.dragStartX - x;
     const dy = player.dragStartY - y;
@@ -2580,6 +3118,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         } else if (player.state === 'PERCHED') {
           player.x = Math.min(SANDBOX_MAP_WIDTH - 120, player.x + 16);
           player.facing = 1;
+          const canvas = canvasRef.current;
+          const rect = canvas ? canvas.getBoundingClientRect() : null;
+          const h = rect && rect.height > 100 ? rect.height : 680;
+          const gY = h - 55;
+          const surfaces = getPhysicalSurfacesAtX(player.x, gY);
+          if (surfaces[0]) {
+            if (Math.abs(player.y - surfaces[0].y) < 36) player.y = surfaces[0].y;
+            else if (player.y < surfaces[0].y - 36) {
+              player.state = 'CRUISING';
+              player.vy = 2.0;
+              player.vx = player.facing * GAME_PHYSICS.CRUISE_SPEED_BASE;
+            }
+          }
         } else if (player.state === 'CRUISING') {
           player.facing = 1;
           player.vx = GAME_PHYSICS.CRUISE_SPEED_BASE;
@@ -2589,6 +3140,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (player.state === 'PERCHED') {
           player.x = Math.max(120, player.x - 16);
           player.facing = -1;
+          const canvas = canvasRef.current;
+          const rect = canvas ? canvas.getBoundingClientRect() : null;
+          const h = rect && rect.height > 100 ? rect.height : 680;
+          const gY = h - 55;
+          const surfaces = getPhysicalSurfacesAtX(player.x, gY);
+          if (surfaces[0]) {
+            if (Math.abs(player.y - surfaces[0].y) < 36) player.y = surfaces[0].y;
+            else if (player.y < surfaces[0].y - 36) {
+              player.state = 'CRUISING';
+              player.vy = 2.0;
+              player.vx = player.facing * GAME_PHYSICS.CRUISE_SPEED_BASE;
+            }
+          }
         } else if (player.state === 'CRUISING') {
           player.facing = -1;
           player.vx = -GAME_PHYSICS.CRUISE_SPEED_BASE;
@@ -2598,6 +3162,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (player.state === 'PERCHED') {
           player.x = Math.min(SANDBOX_MAP_WIDTH - 120, player.x + 16);
           player.facing = 1;
+          const canvas = canvasRef.current;
+          const rect = canvas ? canvas.getBoundingClientRect() : null;
+          const h = rect && rect.height > 100 ? rect.height : 680;
+          const gY = h - 55;
+          const surfaces = getPhysicalSurfacesAtX(player.x, gY);
+          if (surfaces[0]) {
+            if (Math.abs(player.y - surfaces[0].y) < 36) player.y = surfaces[0].y;
+            else if (player.y < surfaces[0].y - 36) {
+              player.state = 'CRUISING';
+              player.vy = 2.0;
+              player.vx = player.facing * GAME_PHYSICS.CRUISE_SPEED_BASE;
+            }
+          }
         } else if (player.state === 'CRUISING') {
           player.facing = 1;
           player.vx = GAME_PHYSICS.CRUISE_SPEED_BASE;

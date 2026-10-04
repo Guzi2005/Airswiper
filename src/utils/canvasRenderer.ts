@@ -3,6 +3,7 @@ import {
   BackgroundBuilding,
   Cloud,
   CrowPlayer,
+  DroppedPhysicsItem,
   FloatingBalloonPacket,
   FloatingText,
   Obstacle,
@@ -11,6 +12,7 @@ import {
   PoopProjectile,
   TownBuilding,
   TownNPC,
+  TownSparrow,
   TownTrafficVehicle,
 } from '../types/game';
 import { GAME_PHYSICS, LOOT_CONFIGS } from './constants';
@@ -327,8 +329,15 @@ export function drawWindStreaks(ctx: CanvasRenderingContext2D, time: number, cam
   ctx.restore();
 }
 
-// Draw Refined Naif European Storybook Building with Detailed Facade & Window Occupants
-export function drawBuilding(ctx: CanvasRenderingContext2D, building: TownBuilding, screenX: number, groundY: number) {
+// Draw Refined Naif European Storybook Building (Scaled to ~70% screen height with rich Parisian facade & storefronts)
+export function drawBuilding(
+  ctx: CanvasRenderingContext2D,
+  building: TownBuilding,
+  screenX: number,
+  groundY: number,
+  npcs?: TownNPC[],
+  time: number = 0
+) {
   const bX = screenX;
   const bY = groundY - building.height;
   const bW = building.width;
@@ -342,342 +351,559 @@ export function drawBuilding(ctx: CanvasRenderingContext2D, building: TownBuildi
 
   // 2. Foundation stone plinth & cellar grates
   ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
-  ctx.fillRect(bX, groundY - 20, bW, 20);
+  ctx.fillRect(bX, groundY - 24, bW, 24);
   ctx.fillStyle = '#1e293b';
-  for (let gx = bX + 22; gx < bX + bW - 30; gx += 70) {
-    ctx.fillRect(gx, groundY - 14, 20, 8);
+  for (let gx = bX + 26; gx < bX + bW - 36; gx += 85) {
+    ctx.fillRect(gx, groundY - 16, 26, 10);
     ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(gx, groundY - 14, 20, 8);
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(gx, groundY - 16, 26, 10);
+    // Vertical iron bars
+    ctx.beginPath();
+    ctx.moveTo(gx + 9, groundY - 16);
+    ctx.lineTo(gx + 9, groundY - 6);
+    ctx.moveTo(gx + 17, groundY - 16);
+    ctx.lineTo(gx + 17, groundY - 6);
+    ctx.stroke();
   }
 
   // 3. Ashlar Stone Corner Quoins (Alternating corner masonry blocks)
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.07)';
-  const quoinH = 18;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+  const quoinH = 22;
   const quoinCount = Math.floor(bH / quoinH);
   for (let q = 0; q < quoinCount; q++) {
     const qy = groundY - (q + 1) * quoinH;
     const isLong = q % 2 === 0;
-    const qw = isLong ? 16 : 10;
+    const qw = isLong ? 20 : 12;
     // Left corner
-    ctx.fillRect(bX, qy, qw, quoinH - 1.5);
+    ctx.fillRect(bX, qy, qw, quoinH - 2);
     // Right corner
-    ctx.fillRect(bX + bW - qw, qy, qw, quoinH - 1.5);
+    ctx.fillRect(bX + bW - qw, qy, qw, quoinH - 2);
   }
 
-  // 4. Half-timbering wooden beams (Colombage) on upper floors
-  ctx.strokeStyle = 'rgba(120, 53, 15, 0.28)';
-  ctx.lineWidth = 2.5;
-  const floor2Y = groundY - 110;
-  if (bH > 220) {
+  // 4. Storey Separation Beams & Half-Timbering (Colombage)
+  const floor2Y = groundY - 145;
+  const floor3Y = groundY - 280;
+
+  ctx.strokeStyle = 'rgba(120, 53, 15, 0.32)';
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  // Horizontal beam separating ground shop and upper floor
+  ctx.moveTo(bX, floor2Y);
+  ctx.lineTo(bX + bW, floor2Y);
+  if (bH > 460) {
+    // 3rd floor beam
+    ctx.moveTo(bX, floor3Y);
+    ctx.lineTo(bX + bW, floor3Y);
+  }
+  // Decorative timber cross braces
+  ctx.moveTo(bX + 22, floor2Y);
+  ctx.lineTo(bX + 48, floor2Y - 50);
+  ctx.moveTo(bX + bW - 22, floor2Y);
+  ctx.lineTo(bX + bW - 48, floor2Y - 50);
+  ctx.stroke();
+
+  // Carved wooden corbels supporting the upper floor overhang
+  ctx.fillStyle = '#78350f';
+  for (let cx = bX + 20; cx < bX + bW - 20; cx += 65) {
     ctx.beginPath();
-    // Horizontal beam separating ground shop and upper floor
-    ctx.moveTo(bX, floor2Y);
-    ctx.lineTo(bX + bW, floor2Y);
-    if (bH > 340) {
-      // 3rd floor beam
-      ctx.moveTo(bX, floor2Y - 80);
-      ctx.lineTo(bX + bW, floor2Y - 80);
-    }
-    // Decorative diagonal cross braces on piers
-    ctx.moveTo(bX + 16, floor2Y);
-    ctx.lineTo(bX + 36, floor2Y - 40);
-    ctx.moveTo(bX + bW - 16, floor2Y);
-    ctx.lineTo(bX + bW - 36, floor2Y - 40);
-    ctx.stroke();
+    ctx.moveTo(cx, floor2Y);
+    ctx.lineTo(cx + 8, floor2Y);
+    ctx.lineTo(cx, floor2Y + 12);
+    ctx.closePath();
+    ctx.fill();
   }
 
-  // 5. Roof Architecture
+  // 5. Roof Architecture (Mansard, Gable, Steep)
   ctx.fillStyle = building.roofColor;
   ctx.beginPath();
   if (building.roofType === 'gable') {
-    ctx.moveTo(bX - 8, bY);
-    ctx.lineTo(bX + bW / 2, bY - 48);
-    ctx.lineTo(bX + bW + 8, bY);
+    ctx.moveTo(bX - 10, bY);
+    ctx.lineTo(bX + bW / 2, bY - 58);
+    ctx.lineTo(bX + bW + 10, bY);
   } else if (building.roofType === 'mansard') {
-    ctx.moveTo(bX - 6, bY);
-    ctx.lineTo(bX + 22, bY - 42);
-    ctx.lineTo(bX + bW - 22, bY - 42);
-    ctx.lineTo(bX + bW + 6, bY);
-  } else if (building.roofType === 'steep') {
-    ctx.moveTo(bX - 6, bY);
-    ctx.lineTo(bX + bW / 2, bY - 65);
-    ctx.lineTo(bX + bW + 6, bY);
-  } else {
     ctx.moveTo(bX - 8, bY);
-    ctx.quadraticCurveTo(bX + bW / 2, bY - 50, bX + bW + 8, bY);
+    ctx.lineTo(bX + 28, bY - 54);
+    ctx.lineTo(bX + bW - 28, bY - 54);
+    ctx.lineTo(bX + bW + 8, bY);
+  } else if (building.roofType === 'steep') {
+    ctx.moveTo(bX - 8, bY);
+    ctx.lineTo(bX + bW / 2, bY - 82);
+    ctx.lineTo(bX + bW + 8, bY);
+  } else {
+    ctx.moveTo(bX - 10, bY);
+    ctx.quadraticCurveTo(bX + bW / 2, bY - 62, bX + bW + 10, bY);
   }
   ctx.closePath();
   ctx.fill();
 
   // Roof scalloped tile texture lines
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.16)';
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.moveTo(bX + 10, bY - 14);
-  ctx.lineTo(bX + bW - 10, bY - 14);
-  ctx.moveTo(bX + 24, bY - 28);
-  ctx.lineTo(bX + bW - 24, bY - 28);
+  ctx.moveTo(bX + 12, bY - 18);
+  ctx.lineTo(bX + bW - 12, bY - 18);
+  ctx.moveTo(bX + 28, bY - 36);
+  ctx.lineTo(bX + bW - 28, bY - 36);
   ctx.stroke();
 
-  // Chimney with playful smoke puffs
+  // Dormer window (Lucarne) projecting out of Mansard roofs
+  if (building.roofType === 'mansard') {
+    const lucarneX = bX + bW * 0.35;
+    const lucarneY = bY - 42;
+    ctx.fillStyle = building.color;
+    ctx.fillRect(lucarneX - 12, lucarneY, 24, 28);
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(lucarneX - 12, lucarneY, 24, 28);
+    // Arched pediment
+    ctx.fillStyle = building.roofColor;
+    ctx.beginPath();
+    ctx.arc(lucarneX, lucarneY, 13, Math.PI, 0);
+    ctx.fill();
+    // Warm light glass
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(lucarneX - 8, lucarneY + 4, 16, 20);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(lucarneX - 8, lucarneY + 4, 16, 20);
+  }
+
+  // Red brick chimney with terracotta pots and animated curling smoke
   ctx.fillStyle = '#991b1b';
-  ctx.fillRect(bX + bW * 0.72, bY - 46, 18, 28);
+  ctx.fillRect(bX + bW * 0.72, bY - 58, 24, 38);
   ctx.fillStyle = '#7f1d1d';
-  ctx.fillRect(bX + bW * 0.72 - 2, bY - 50, 22, 5);
+  ctx.fillRect(bX + bW * 0.72 - 3, bY - 64, 30, 7);
+  // Brick course texture
+  ctx.strokeStyle = '#b91c1c';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(bX + bW * 0.72, bY - 44);
+  ctx.lineTo(bX + bW * 0.72 + 24, bY - 44);
+  ctx.moveTo(bX + bW * 0.72, bY - 32);
+  ctx.lineTo(bX + bW * 0.72 + 24, bY - 32);
+  ctx.stroke();
   // Terracotta chimney pots
   ctx.fillStyle = '#ea580c';
   ctx.beginPath();
-  ctx.arc(bX + bW * 0.72 + 5, bY - 53, 3, 0, Math.PI * 2);
-  ctx.arc(bX + bW * 0.72 + 13, bY - 53, 3, 0, Math.PI * 2);
+  ctx.arc(bX + bW * 0.72 + 6, bY - 68, 4, 0, Math.PI * 2);
+  ctx.arc(bX + bW * 0.72 + 18, bY - 68, 4, 0, Math.PI * 2);
   ctx.fill();
 
-  // 6. Ground Floor Shop Entrance Door & Display Showcase
-  const doorW = 32;
-  const doorH = 72;
-  const doorX = bX + bW - 46;
-  const doorY = groundY - doorH;
+  // If Clocktower: Gothic dial with Roman numerals and brass bells
+  if (building.type === 'clocktower') {
+    const dialX = bX + bW / 2;
+    const dialY = bY + 120;
+    const dialR = 36;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(dialX, dialY, dialR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ca8a04';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-  // Door frame
+    // Clock hour markings & hands
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 8px Fredoka, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('XII', dialX, dialY - 24);
+    ctx.fillText('III', dialX + 26, dialY + 3);
+    ctx.fillText('VI', dialX, dialY + 28);
+    ctx.fillText('IX', dialX - 26, dialY + 3);
+    // Clock hands
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(dialX, dialY);
+    ctx.lineTo(dialX + 16, dialY - 8);
+    ctx.moveTo(dialX, dialY);
+    ctx.lineTo(dialX - 4, dialY - 18);
+    ctx.stroke();
+  }
+
+  // 6. Grand Ground Floor Storefront (Height: 145px, Door: 100px, Showcase: 82px)
+  const doorW = building.doorWidth || 44;
+  const doorH = building.doorHeight || 100;
+  const doorRelX = building.doorX ? (building.doorX - building.x) : (bW - 60);
+  const doorX = bX + Math.max(12, Math.min(bW - doorW - 12, doorRelX));
+  const doorY = groundY - doorH;
+  const openProg = building.doorOpenProgress || 0;
+
+  // Door surround casing & fanlight
   ctx.fillStyle = '#78350f';
-  ctx.fillRect(doorX - 2, doorY - 4, doorW + 4, doorH + 4);
-  ctx.fillStyle = '#451a03';
+  ctx.fillRect(doorX - 3, doorY - 18, doorW + 6, doorH + 18);
+  // Arched fanlight transom window
+  ctx.fillStyle = '#fef08a';
+  ctx.beginPath();
+  ctx.arc(doorX + doorW / 2, doorY, doorW / 2 - 2, Math.PI, 0);
+  ctx.fill();
+  ctx.strokeStyle = '#451a03';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Interior room darkness & warm light spilling through open doorway!
+  ctx.fillStyle = '#1e1b4b'; // deep cozy interior room
   ctx.fillRect(doorX, doorY, doorW, doorH);
 
-  // Door panels & brass knocker
+  if (openProg > 0) {
+    // Warm interior chandelier light spilling onto the sidewalk
+    ctx.fillStyle = `rgba(254, 240, 138, ${0.45 * openProg})`;
+    ctx.beginPath();
+    ctx.moveTo(doorX, doorY + doorH);
+    ctx.lineTo(doorX + doorW, doorY + doorH);
+    ctx.lineTo(doorX + doorW + 28 * openProg, doorY + doorH + 18 * openProg);
+    ctx.lineTo(doorX - 16 * openProg, doorY + doorH + 18 * openProg);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Solid wood French shop entrance door (swings open with 3D perspective!)
+  ctx.save();
+  ctx.translate(doorX, doorY);
+  if (openProg > 0) {
+    ctx.transform(Math.max(0.18, Math.cos(openProg * 1.35)), 0, -Math.sin(openProg * 0.35), 1, 0, 0);
+  }
+  ctx.fillStyle = '#451a03';
+  ctx.fillRect(0, 0, doorW, doorH);
+
+  // Molded panels
   ctx.fillStyle = '#78350f';
-  ctx.fillRect(doorX + 3, doorY + 6, doorW - 6, 26);
-  ctx.fillRect(doorX + 3, doorY + 36, doorW - 6, 28);
+  ctx.fillRect(4, 6, doorW - 8, 38);
+  ctx.fillRect(4, 50, doorW - 8, 42);
+  // Brass hardware
   ctx.fillStyle = '#facc15';
   ctx.beginPath();
-  ctx.arc(doorX + doorW - 6, doorY + 38, 2.5, 0, Math.PI * 2); // brass knob
+  ctx.arc(doorW - 8, 52, 3.5, 0, Math.PI * 2); // brass handle
   ctx.fill();
-  ctx.fillRect(doorX + 4, doorY + doorH - 6, doorW - 8, 4); // brass kickplate
+  ctx.fillRect(6, doorH - 8, doorW - 12, 5); // brass kickplate
+  ctx.restore();
 
-  // Ground level storefront multi-pane display window
-  const shopWinX = bX + 16;
-  const shopWinY = groundY - 78;
-  const shopWinW = bW - 74;
-  const shopWinH = 54;
+  // House number plaque above door
+  ctx.fillStyle = '#1e3a8a';
+  ctx.fillRect(doorX + doorW / 2 - 10, doorY - 14, 20, 10);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 7px Fredoka, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('N° 7', doorX + doorW / 2, doorY - 6);
+
+  // Ground level storefront multi-pane display showcase window
+  const shopWinX = bX + 18;
+  const shopWinY = groundY - 130;
+  const shopWinW = bW - 88;
+  const shopWinH = 84;
   if (shopWinW > 40) {
     ctx.fillStyle = '#fef3c7'; // warm interior amber glow
     ctx.fillRect(shopWinX, shopWinY, shopWinW, shopWinH);
     ctx.strokeStyle = '#78350f';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.strokeRect(shopWinX, shopWinY, shopWinW, shopWinH);
 
     // Multi-pane dividers
     ctx.strokeStyle = '#92400e';
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(shopWinX + shopWinW / 2, shopWinY);
-    ctx.lineTo(shopWinX + shopWinW / 2, shopWinY + shopWinH);
-    ctx.moveTo(shopWinX, shopWinY + shopWinH / 2);
-    ctx.lineTo(shopWinX + shopWinW, shopWinY + shopWinH / 2);
+    ctx.moveTo(shopWinX + shopWinW * 0.33, shopWinY);
+    ctx.lineTo(shopWinX + shopWinW * 0.33, shopWinY + shopWinH);
+    ctx.moveTo(shopWinX + shopWinW * 0.66, shopWinY);
+    ctx.lineTo(shopWinX + shopWinW * 0.66, shopWinY + shopWinH);
+    ctx.moveTo(shopWinX, shopWinY + shopWinH * 0.5);
+    ctx.lineTo(shopWinX + shopWinW, shopWinY + shopWinH * 0.5);
     ctx.stroke();
 
-    // Display merchandise inside window
+    // Display merchandise inside window showcase
     if (building.type === 'bakery') {
-      // Golden Croissants on brass cake stand
+      // Tiered brass pastry racks with golden croissants and macarons
       ctx.fillStyle = '#b45309';
-      ctx.fillRect(shopWinX + 8, shopWinY + shopWinH - 12, shopWinW - 16, 3);
+      ctx.fillRect(shopWinX + 8, shopWinY + shopWinH - 14, shopWinW - 16, 4);
+      ctx.fillRect(shopWinX + 14, shopWinY + shopWinH - 36, shopWinW - 28, 3);
+      // Golden croissants
       ctx.fillStyle = '#f59e0b';
-      for (let cx = shopWinX + 14; cx < shopWinX + shopWinW - 12; cx += 14) {
+      for (let cx = shopWinX + 16; cx < shopWinX + shopWinW - 14; cx += 16) {
         ctx.beginPath();
-        ctx.ellipse(cx, shopWinY + shopWinH - 15, 5, 3.5, 0.2, 0, Math.PI * 2);
+        ctx.ellipse(cx, shopWinY + shopWinH - 18, 6.5, 4.5, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Colorful macarons on upper shelf
+      const macColors = ['#f43f5e', '#a855f7', '#10b981', '#facc15'];
+      for (let mx = shopWinX + 20; mx < shopWinX + shopWinW - 22; mx += 14) {
+        ctx.fillStyle = macColors[Math.floor((mx - shopWinX) / 14) % macColors.length];
+        ctx.beginPath();
+        ctx.arc(mx, shopWinY + shopWinH - 40, 4, 0, Math.PI * 2);
         ctx.fill();
       }
     } else if (building.type === 'bookshop') {
-      // Colorful books
-      const bookColors = ['#dc2626', '#16a34a', '#2563eb', '#ca8a04'];
-      for (let bx = shopWinX + 6; bx < shopWinX + shopWinW - 8; bx += 8) {
-        ctx.fillStyle = bookColors[Math.floor((bx - shopWinX) / 8) % bookColors.length];
-        ctx.fillRect(bx, shopWinY + shopWinH - 18, 6, 15);
+      // Floor-to-ceiling bookshelves packed with colorful leather volumes
+      const bookColors = ['#dc2626', '#16a34a', '#2563eb', '#ca8a04', '#7c3aed'];
+      for (let bx = shopWinX + 6; bx < shopWinX + shopWinW - 8; bx += 9) {
+        ctx.fillStyle = bookColors[Math.floor((bx - shopWinX) / 9) % bookColors.length];
+        ctx.fillRect(bx, shopWinY + shopWinH - 24, 7, 20);
+        ctx.fillRect(bx, shopWinY + shopWinH - 52, 7, 22);
       }
     } else if (building.type === 'florist') {
-      // Potted flowers
-      for (let fx = shopWinX + 10; fx < shopWinX + shopWinW - 10; fx += 16) {
+      // Wooden crates of potted lavender, roses, sunflowers
+      for (let fx = shopWinX + 12; fx < shopWinX + shopWinW - 12; fx += 20) {
         ctx.fillStyle = '#b45309';
-        ctx.fillRect(fx - 4, shopWinY + shopWinH - 10, 8, 8);
-        ctx.fillStyle = '#f43f5e';
+        ctx.fillRect(fx - 6, shopWinY + shopWinH - 14, 12, 12);
+        ctx.fillStyle = fx % 40 === 0 ? '#8b5cf6' : '#f43f5e';
         ctx.beginPath();
-        ctx.arc(fx, shopWinY + shopWinH - 14, 4.5, 0, Math.PI * 2);
+        ctx.arc(fx, shopWinY + shopWinH - 20, 6.5, 0, Math.PI * 2);
         ctx.fill();
       }
+    } else if (building.type === 'cafe') {
+      // Bistro marble table, espresso cups & pastry dome
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.ellipse(shopWinX + shopWinW / 2, shopWinY + shopWinH - 16, 22, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(shopWinX + shopWinW / 2 - 10, shopWinY + shopWinH - 25, 8, 8);
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.ellipse(shopWinX + shopWinW / 2 + 6, shopWinY + shopWinH - 21, 6, 4, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Haunt the House style: Citizen inside ground floor shop!
+    const groundFloorNPC = npcs?.find(
+      (n) => (n.indoorBuildingId === building.id || n.indoorBuildingId === building.signText) && (n.indoorFloor === 0 || !n.indoorFloor)
+    );
+    if (groundFloorNPC && shopWinW > 40) {
+      const gX = shopWinX + shopWinW * 0.48;
+      const gY = shopWinY + shopWinH - 6;
+      ctx.save();
+      // Body
+      ctx.fillStyle = groundFloorNPC.coatColor === 'dark' ? '#1e293b' : '#0284c7';
+      ctx.fillRect(gX - 10, gY - 32, 20, 24);
+      // Head
+      ctx.fillStyle = '#fed7aa';
+      ctx.beginPath();
+      ctx.arc(gX, gY - 42, 9, 0, Math.PI * 2);
+      ctx.fill();
+      // Hair or Hat
+      ctx.fillStyle = '#451a03';
+      ctx.beginPath();
+      ctx.arc(gX, gY - 45, 9.5, Math.PI, 0);
+      ctx.fill();
+      // Holding shopping item or tea
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(gX + 7, gY - 24, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
   }
 
-  // 7. Upper Floor Windows with Louvered Shutters, Flower Boxes & Occupants (窗里的人!)
+  // 7. Upper Floor Windows with Louvered Shutters, Balconies, Flower Boxes & Occupants (窗里的人!)
   building.windows.forEach((win) => {
     const wx = bX + win.x;
     const wy = bY + win.y;
 
     // Stone lintel & sill
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
-    ctx.fillRect(wx - 2, wy - 3, win.w + 4, 3);
-    ctx.fillRect(wx - 3, wy + win.h, win.w + 6, 3);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+    ctx.fillRect(wx - 3, wy - 4, win.w + 6, 4);
+    ctx.fillRect(wx - 4, wy + win.h, win.w + 8, 4);
 
     // Window opening & warm light
     ctx.fillStyle = win.lit ? '#fef08a' : '#bfdbfe';
     ctx.fillRect(wx, wy, win.w, win.h);
 
-    // Louvered Shutters in charming pastel (Sage green / Powder blue)
+    // Louvered Shutters in charming pastel (Powder blue / Sage green)
     ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(wx - 9, wy - 1, 7, win.h + 2);
-    ctx.fillRect(wx + win.w + 2, wy - 1, 7, win.h + 2);
+    ctx.fillRect(wx - 11, wy - 1, 9, win.h + 2);
+    ctx.fillRect(wx + win.w + 2, wy - 1, 9, win.h + 2);
     ctx.strokeStyle = '#0284c7';
-    ctx.lineWidth = 0.8;
-    ctx.strokeRect(wx - 9, wy - 1, 7, win.h + 2);
-    ctx.strokeRect(wx + win.w + 2, wy - 1, 7, win.h + 2);
+    ctx.lineWidth = 0.9;
+    ctx.strokeRect(wx - 11, wy - 1, 9, win.h + 2);
+    ctx.strokeRect(wx + win.w + 2, wy - 1, 9, win.h + 2);
     // Shutter louvers
-    for (let sy = wy + 4; sy < wy + win.h; sy += 5) {
+    for (let sy = wy + 4; sy < wy + win.h; sy += 6) {
       ctx.beginPath();
-      ctx.moveTo(wx - 8, sy);
+      ctx.moveTo(wx - 10, sy);
       ctx.lineTo(wx - 3, sy);
       ctx.moveTo(wx + win.w + 3, sy);
-      ctx.lineTo(wx + win.w + 8, sy);
+      ctx.lineTo(wx + win.w + 10, sy);
       ctx.stroke();
     }
 
     // -------------------------------------------------------------
     // 窗里的人 (People visible inside windows!)
     // -------------------------------------------------------------
-    if (win.occupant) {
+    const indoorVisitingNpc = npcs?.find(
+      (n) =>
+        (n.indoorBuildingId === building.id || n.indoorBuildingId === building.signText) &&
+        n.indoorFloor === 2
+    );
+    const occupantType = win.occupant || (indoorVisitingNpc ? 'visiting_citizen' : undefined);
+
+    if (occupantType) {
       const pCenterX = wx + win.w / 2;
       const pBaseY = wy + win.h;
 
       // 1. Grandpa in spectacles & wool cap reading / tea
-      if (win.occupant === 'grandpa') {
+      if (occupantType === 'grandpa') {
         // Waistcoat
         ctx.fillStyle = '#78350f';
-        ctx.fillRect(pCenterX - 8, pBaseY - 14, 16, 14);
-        // Head
+        ctx.fillRect(pCenterX - 11, pBaseY - 20, 22, 20);
+        // Head (Harmonized head radius 10.5px)
         ctx.fillStyle = '#fed7aa';
         ctx.beginPath();
-        ctx.arc(pCenterX, pBaseY - 20, 6.5, 0, Math.PI * 2);
+        ctx.arc(pCenterX, pBaseY - 28, 10.5, 0, Math.PI * 2);
         ctx.fill();
         // White mustache
         ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(pCenterX - 3.5, pBaseY - 19, 7, 2.5);
+        ctx.fillRect(pCenterX - 5, pBaseY - 26, 10, 3.5);
         // Glasses
         ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(pCenterX - 4.5, pBaseY - 22, 4, 3);
-        ctx.strokeRect(pCenterX + 0.5, pBaseY - 22, 4, 3);
+        ctx.lineWidth = 1.3;
+        ctx.strokeRect(pCenterX - 7, pBaseY - 31, 6, 4.5);
+        ctx.strokeRect(pCenterX + 1, pBaseY - 31, 6, 4.5);
         // Wool cap
         ctx.fillStyle = '#166534';
         ctx.beginPath();
-        ctx.ellipse(pCenterX, pBaseY - 26, 7.5, 3.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(pCenterX, pBaseY - 37, 11, 5, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       // 2. Cheerful Girl waving both arms!
       else if (win.occupant === 'girl') {
         // Dress
         ctx.fillStyle = '#f43f5e';
-        ctx.fillRect(pCenterX - 7, pBaseY - 14, 14, 14);
+        ctx.fillRect(pCenterX - 11, pBaseY - 20, 22, 20);
         // Head
         ctx.fillStyle = '#fed7aa';
         ctx.beginPath();
-        ctx.arc(pCenterX, pBaseY - 19, 6.5, 0, Math.PI * 2);
+        ctx.arc(pCenterX, pBaseY - 28, 10.5, 0, Math.PI * 2);
         ctx.fill();
         // Dark brown hair & pigtails with red bows
         ctx.fillStyle = '#78350f';
         ctx.beginPath();
-        ctx.arc(pCenterX - 6, pBaseY - 20, 3, 0, Math.PI * 2);
-        ctx.arc(pCenterX + 6, pBaseY - 20, 3, 0, Math.PI * 2);
+        ctx.arc(pCenterX - 9, pBaseY - 30, 4.5, 0, Math.PI * 2);
+        ctx.arc(pCenterX + 9, pBaseY - 30, 4.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ef4444';
-        ctx.fillRect(pCenterX - 7, pBaseY - 23, 2.5, 2.5);
-        ctx.fillRect(pCenterX + 5, pBaseY - 23, 2.5, 2.5);
+        ctx.fillRect(-pCenterX - 10, pBaseY - 34, 4, 4);
+        ctx.fillRect(pCenterX + 7, pBaseY - 34, 4, 4);
         // Waving hands resting on window sill
         ctx.fillStyle = '#fed7aa';
         ctx.beginPath();
-        ctx.arc(pCenterX - 8, pBaseY - 2, 2.5, 0, Math.PI * 2);
-        ctx.arc(pCenterX + 8, pBaseY - 2, 2.5, 0, Math.PI * 2);
+        ctx.arc(pCenterX - 11, pBaseY - 2, 4, 0, Math.PI * 2);
+        ctx.arc(pCenterX + 11, pBaseY - 2, 4, 0, Math.PI * 2);
         ctx.fill();
       }
       // 3. Baker in white chef toque
       else if (win.occupant === 'baker') {
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(pCenterX - 7, pBaseY - 14, 14, 14);
+        ctx.fillRect(pCenterX - 11, pBaseY - 20, 22, 20);
         // Head
         ctx.fillStyle = '#fed7aa';
         ctx.beginPath();
-        ctx.arc(pCenterX, pBaseY - 19, 6.5, 0, Math.PI * 2);
+        ctx.arc(pCenterX, pBaseY - 28, 10.5, 0, Math.PI * 2);
         ctx.fill();
         // Tall chef toque hat
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(pCenterX - 5, pBaseY - 31, 10, 11);
+        ctx.fillRect(pCenterX - 8, pBaseY - 44, 16, 16);
         ctx.beginPath();
-        ctx.arc(pCenterX, pBaseY - 31, 6, Math.PI, 0);
+        ctx.arc(pCenterX, pBaseY - 44, 10, Math.PI, 0);
         ctx.fill();
         ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.2;
         ctx.stroke();
       }
       // 4. Cat napping on window sill
       else if (win.occupant === 'cat') {
         ctx.fillStyle = '#ea580c';
         ctx.beginPath();
-        ctx.ellipse(pCenterX, pBaseY - 5, 8, 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(pCenterX, pBaseY - 8, 13, 8, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(pCenterX + 6, pBaseY - 8, 4, 0, Math.PI * 2);
+        ctx.arc(pCenterX + 9, pBaseY - 12, 6.5, 0, Math.PI * 2);
         ctx.fill();
         // Ears
         ctx.fillStyle = '#c2410c';
         ctx.beginPath();
-        ctx.moveTo(pCenterX + 4, pBaseY - 12);
-        ctx.lineTo(pCenterX + 6, pBaseY - 15);
-        ctx.lineTo(pCenterX + 8, pBaseY - 12);
+        ctx.moveTo(pCenterX + 7, pBaseY - 17);
+        ctx.lineTo(pCenterX + 10, pBaseY - 22);
+        ctx.lineTo(pCenterX + 13, pBaseY - 17);
         ctx.fill();
       }
       // 5. Reader engrossed in book
       else if (win.occupant === 'reader') {
         ctx.fillStyle = '#1e3a8a';
-        ctx.fillRect(pCenterX - 7, pBaseY - 14, 14, 14);
+        ctx.fillRect(pCenterX - 11, pBaseY - 20, 22, 20);
         ctx.fillStyle = '#fed7aa';
         ctx.beginPath();
-        ctx.arc(pCenterX, pBaseY - 19, 6.5, 0, Math.PI * 2);
+        ctx.arc(pCenterX, pBaseY - 28, 10.5, 0, Math.PI * 2);
         ctx.fill();
         // Open red book on sill
         ctx.fillStyle = '#dc2626';
         ctx.beginPath();
-        ctx.moveTo(pCenterX - 7, pBaseY - 1);
-        ctx.lineTo(pCenterX, pBaseY - 4);
-        ctx.lineTo(pCenterX + 7, pBaseY - 1);
-        ctx.lineTo(pCenterX + 7, pBaseY - 6);
-        ctx.lineTo(pCenterX, pBaseY - 9);
-        ctx.lineTo(pCenterX - 7, pBaseY - 6);
+        ctx.moveTo(pCenterX - 10, pBaseY - 1);
+        ctx.lineTo(pCenterX, pBaseY - 6);
+        ctx.lineTo(pCenterX + 10, pBaseY - 1);
+        ctx.lineTo(pCenterX + 10, pBaseY - 10);
+        ctx.lineTo(pCenterX, pBaseY - 15);
+        ctx.lineTo(pCenterX - 10, pBaseY - 10);
         ctx.closePath();
         ctx.fill();
       }
       // 6. Lady watering flowers with brass can
       else if (win.occupant === 'lady') {
         ctx.fillStyle = '#9333ea';
-        ctx.fillRect(pCenterX - 7, pBaseY - 14, 14, 14);
+        ctx.fillRect(pCenterX - 11, pBaseY - 20, 22, 20);
         ctx.fillStyle = '#fed7aa';
         ctx.beginPath();
-        ctx.arc(pCenterX, pBaseY - 19, 6.5, 0, Math.PI * 2);
+        ctx.arc(pCenterX, pBaseY - 28, 10.5, 0, Math.PI * 2);
         ctx.fill();
         // Bonnet
         ctx.fillStyle = '#fbcfe8';
         ctx.beginPath();
-        ctx.arc(pCenterX, pBaseY - 21, 8, Math.PI, 0);
+        ctx.arc(pCenterX, pBaseY - 30, 12, Math.PI, 0);
         ctx.fill();
         // Brass watering can
         ctx.fillStyle = '#f59e0b';
-        ctx.fillRect(pCenterX + 4, pBaseY - 10, 6, 6);
+        ctx.fillRect(pCenterX + 6, pBaseY - 14, 9, 9);
         ctx.beginPath();
-        ctx.moveTo(pCenterX + 10, pBaseY - 9);
-        ctx.lineTo(pCenterX + 15, pBaseY - 5);
+        ctx.moveTo(pCenterX + 15, pBaseY - 13);
+        ctx.lineTo(pCenterX + 22, pBaseY - 7);
         ctx.stroke();
+      }
+      // 7. Visiting citizen from Haunt the House autonomous roaming!
+      else if (occupantType === 'visiting_citizen' && indoorVisitingNpc) {
+        ctx.fillStyle = indoorVisitingNpc.coatColor === 'dark' ? '#1e293b' : '#0284c7';
+        ctx.fillRect(pCenterX - 11, pBaseY - 20, 22, 20);
+        ctx.fillStyle = '#fed7aa';
+        ctx.beginPath();
+        ctx.arc(pCenterX, pBaseY - 28, 10.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#451a03';
+        ctx.beginPath();
+        ctx.arc(pCenterX, pBaseY - 32, 11, Math.PI, 0);
+        ctx.fill();
+        const wave = Math.sin(time * 6) * 3;
+        ctx.fillStyle = '#fed7aa';
+        ctx.beginPath();
+        ctx.arc(pCenterX + 9, pBaseY - 14 + wave, 3.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (indoorVisitingNpc.state === 'startled') {
+          ctx.fillStyle = '#fef08a';
+          ctx.beginPath();
+          ctx.arc(pCenterX + 7, pBaseY - 42, 6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ef4444';
+          ctx.font = 'bold 9px Fredoka, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('！', pCenterX + 7, pBaseY - 38);
+        }
       }
     }
 
     // Window Panes
     ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 1.3;
     ctx.strokeRect(wx, wy, win.w, win.h);
     ctx.beginPath();
     ctx.moveTo(wx + win.w / 2, wy);
@@ -686,60 +912,96 @@ export function drawBuilding(ctx: CanvasRenderingContext2D, building: TownBuildi
     ctx.lineTo(wx + win.w, wy + win.h / 2);
     ctx.stroke();
 
+    // Wrought-iron Parisian balcony railing on 2nd floor windows
+    if (building.hasWroughtIronBalcony && wy > groundY - 280) {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(wx - 3, wy + win.h - 18, win.w + 6, 18);
+      // Railing vertical bars & scrolls
+      for (let rx = wx + 2; rx < wx + win.w; rx += 7) {
+        ctx.beginPath();
+        ctx.moveTo(rx, wy + win.h - 18);
+        ctx.lineTo(rx, wy + win.h);
+        ctx.stroke();
+      }
+      // Gold rosette florets on balcony
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.arc(wx + win.w / 2, wy + win.h - 9, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // Terracotta Flower Box brimming with red geraniums & ivy
     if (win.flowerBox !== false) {
       ctx.fillStyle = '#b45309';
-      ctx.fillRect(wx - 4, wy + win.h + 1, win.w + 8, 7);
+      ctx.fillRect(wx - 5, wy + win.h + 1, win.w + 10, 8);
       // Ivy leaves
       ctx.fillStyle = '#15803d';
-      ctx.fillRect(wx - 2, wy + win.h + 6, 6, 4);
-      ctx.fillRect(wx + win.w - 4, wy + win.h + 6, 5, 4);
+      ctx.fillRect(wx - 3, wy + win.h + 7, 7, 5);
+      ctx.fillRect(wx + win.w - 4, wy + win.h + 7, 6, 5);
       // Red Geranium flowers
       ctx.fillStyle = '#ef4444';
       ctx.beginPath();
-      ctx.arc(wx + 4, wy + win.h + 2, 3, 0, Math.PI * 2);
-      ctx.arc(wx + win.w / 2, wy + win.h + 1, 3.5, 0, Math.PI * 2);
-      ctx.arc(wx + win.w - 4, wy + win.h + 2, 3, 0, Math.PI * 2);
+      ctx.arc(wx + 5, wy + win.h + 2, 3.5, 0, Math.PI * 2);
+      ctx.arc(wx + win.w / 2, wy + win.h + 1, 4, 0, Math.PI * 2);
+      ctx.arc(wx + win.w - 5, wy + win.h + 2, 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
   });
 
   // 8. Striped Scalloped Awning for Bakery & Cafe
   if (building.hasAwning) {
-    const awningY = groundY - 82;
-    const awningH = 26;
-    const awningW = bW - 20;
-    const stripeCount = 7;
+    const awningY = groundY - 136;
+    const awningH = 34;
+    const awningW = bW - 24;
+    const stripeCount = 8;
     const stripeW = awningW / stripeCount;
     const stripeColor = building.awningColor || '#dc2626';
 
     for (let i = 0; i < stripeCount; i++) {
       ctx.fillStyle = i % 2 === 0 ? stripeColor : '#ffffff';
       ctx.beginPath();
-      ctx.moveTo(bX + 10 + i * stripeW, awningY);
-      ctx.lineTo(bX + 10 + (i + 1) * stripeW, awningY);
-      ctx.lineTo(bX + 6 + (i + 1) * stripeW, awningY + awningH);
-      ctx.lineTo(bX + 6 + i * stripeW, awningY + awningH);
+      ctx.moveTo(bX + 12 + i * stripeW, awningY);
+      ctx.lineTo(bX + 12 + (i + 1) * stripeW, awningY);
+      ctx.lineTo(bX + 8 + (i + 1) * stripeW, awningY + awningH);
+      ctx.lineTo(bX + 8 + i * stripeW, awningY + awningH);
       ctx.closePath();
       ctx.fill();
 
       // Scalloped fringe
       ctx.beginPath();
-      ctx.arc(bX + 6 + i * stripeW + stripeW / 2, awningY + awningH, stripeW / 2, 0, Math.PI);
+      ctx.arc(bX + 8 + i * stripeW + stripeW / 2, awningY + awningH, stripeW / 2, 0, Math.PI);
       ctx.fill();
     }
 
-    // Carved Merchant Signboard suspended on wrought-iron bracket
+    // Carved Merchant Signboard suspended on wrought-iron chains
     if (building.signText) {
+      const signX = bX + 22;
+      const signY = awningY - 30;
+      const signW = bW - 44;
+      const signH = 22;
+
+      // Hanging chains
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(signX + 20, signY);
+      ctx.lineTo(signX + 20, signY - 8);
+      ctx.moveTo(signX + signW - 20, signY);
+      ctx.lineTo(signX + signW - 20, signY - 8);
+      ctx.stroke();
+
+      // Wood sign board
       ctx.fillStyle = '#78350f';
-      ctx.fillRect(bX + 16, awningY - 26, bW - 32, 20);
+      ctx.fillRect(signX, signY, signW, signH);
       ctx.strokeStyle = '#fef08a';
       ctx.lineWidth = 1.5;
-      ctx.strokeRect(bX + 18, awningY - 24, bW - 36, 16);
+      ctx.strokeRect(signX + 2, signY + 2, signW - 4, signH - 4);
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 11px Fredoka, sans-serif';
+      ctx.font = 'bold 12px Fredoka, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(building.signText, bX + bW / 2, awningY - 12);
+      ctx.fillText(building.signText, bX + bW / 2, signY + 15);
     }
   }
 
@@ -1231,40 +1493,519 @@ export function drawFountain(ctx: CanvasRenderingContext2D, x: number, groundY: 
   ctx.restore();
 }
 
-// Draw Scaled Naif Tree
-export function drawTree(ctx: CanvasRenderingContext2D, x: number, groundY: number, opacity: number = 1.0) {
+// Draw Procedural Scaled Trees (French Plane, Cherry Blossom, Tuscan Cypress, Weeping Willow, Citrus Tree)
+export function drawTree(
+  ctx: CanvasRenderingContext2D,
+  obs: Obstacle,
+  groundY: number,
+  time: number
+) {
   ctx.save();
-  ctx.globalAlpha = opacity;
-  ctx.translate(x, groundY);
+  ctx.globalAlpha = obs.opacity ?? 1.0;
+  ctx.translate(obs.x + obs.width / 2, groundY);
 
-  ctx.fillStyle = '#78350f';
-  ctx.fillRect(-12, -110, 24, 110);
+  const variety = obs.treeVariety || 'french_plane';
+  const windSway = Math.sin(time * 2.5 + obs.x * 0.05) * 3.5;
+  const seed = obs.plantSeed || (Math.abs(Math.floor(obs.x)) % 1000) + 1;
 
-  const foliageColors = ['#15803d', '#16a34a', '#22c55e', '#4ade80'];
-  ctx.fillStyle = foliageColors[0];
-  ctx.beginPath();
-  ctx.arc(-32, -130, 38, 0, Math.PI * 2);
-  ctx.arc(32, -130, 38, 0, Math.PI * 2);
-  ctx.arc(0, -180, 48, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = foliageColors[2];
-  ctx.beginPath();
-  ctx.arc(-20, -150, 30, 0, Math.PI * 2);
-  ctx.arc(20, -150, 30, 0, Math.PI * 2);
-  ctx.arc(0, -195, 34, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Apples
-  ctx.fillStyle = '#ef4444';
-  const berries = [
-    [-24, -150], [18, -165], [-6, -205], [26, -135], [-32, -120]
-  ];
-  berries.forEach(([bx, by]) => {
+  // 1. CHERRY / APPLE BLOSSOM TREE (粉白樱花与繁花盛开 - 随风飘落落英花瓣)
+  if (variety === 'cherry_blossom') {
+    // Elegant curved trunk with warm wood grain
+    ctx.strokeStyle = '#4a044e';
+    ctx.fillStyle = '#3b0764';
+    ctx.lineWidth = 16;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(bx, by, 5.5, 0, Math.PI * 2);
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(10, -65, 0, -115);
+    ctx.stroke();
+
+    // Branch splits
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(0, -105);
+    ctx.quadraticCurveTo(-28, -140, -48, -165);
+    ctx.moveTo(0, -105);
+    ctx.quadraticCurveTo(26, -140, 44, -165);
+    ctx.stroke();
+
+    // Soft clouds of pink and blush-white blossoms with subtle radial depth
+    const blossomColors = ['#f472b6', '#fbcfe8', '#fdf2f8', '#fda4af', '#f43f5e'];
+    const puffs = [
+      { x: -50, y: -170, r: 42, c: 0 },
+      { x: 44, y: -170, r: 42, c: 1 },
+      { x: 0, y: -210, r: 50, c: 2 },
+      { x: -24, y: -188, r: 38, c: 3 },
+      { x: 26, y: -188, r: 38, c: 0 },
+      { x: 0, y: -160, r: 35, c: 4 },
+    ];
+    puffs.forEach((p) => {
+      ctx.fillStyle = blossomColors[p.c];
+      ctx.beginPath();
+      ctx.arc(p.x + windSway * 0.8, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Delicate blossom petal florets inside cloud
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      for (let f = 0; f < 4; f++) {
+        const fa = f * (Math.PI / 2) + 0.3;
+        ctx.beginPath();
+        ctx.arc(p.x + windSway * 0.8 + Math.cos(fa) * (p.r * 0.45), p.y + Math.sin(fa) * (p.r * 0.45), 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+    // Falling floral petals drifting in wind
+    ctx.fillStyle = '#fbcfe8';
+    for (let i = 0; i < 9; i++) {
+      const petalX = Math.sin(time * 3 + i * 1.3) * 55 + windSway * 2;
+      const petalY = -70 - ((time * 40 + i * 35) % 150);
+      ctx.beginPath();
+      ctx.ellipse(petalX, petalY, 4.5, 2.8, time * 2 + i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 2. TUSCAN CYPRESS (托斯卡纳圆锥常青柏树 - 优雅垂直剪影与细腻叶纹)
+  else if (variety === 'cypress') {
+    ctx.fillStyle = '#3f2e18';
+    ctx.fillRect(-7, -26, 14, 26);
+
+    const cypressH = obs.height || 260;
+    const cypressW = obs.width || 48;
+    const grad = ctx.createLinearGradient(0, -cypressH, 0, 0);
+    grad.addColorStop(0, '#14532d');
+    grad.addColorStop(0.55, '#166534');
+    grad.addColorStop(1, '#052e16');
+    ctx.fillStyle = grad;
+
+    ctx.beginPath();
+    ctx.moveTo(0, -cypressH + windSway * 0.4);
+    ctx.quadraticCurveTo(cypressW * 0.72, -cypressH * 0.6, cypressW * 0.5, -20);
+    ctx.lineTo(-cypressW * 0.5, -20);
+    ctx.quadraticCurveTo(-cypressW * 0.72, -cypressH * 0.6, 0, -cypressH + windSway * 0.4);
+    ctx.closePath();
     ctx.fill();
-  });
+
+    // Dappled foliage needle strokes
+    ctx.fillStyle = '#22c55e';
+    for (let y = -cypressH + 30; y < -25; y += 16) {
+      const rowW = ((y + cypressH) / cypressH) * cypressW * 0.46;
+      ctx.beginPath();
+      ctx.ellipse((Math.sin(y * 0.8) * rowW * 0.5) + windSway * 0.2, y, 8, 4.8, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 3. WEEPING WILLOW (法式柔美垂柳 - 丝缕随风摇曳)
+  else if (variety === 'weeping_willow') {
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(-15, -135, 30, 135);
+
+    // Domed crown
+    ctx.fillStyle = '#15803d';
+    ctx.beginPath();
+    ctx.arc(0, -175, 60, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Dangling willow fronds swaying in wind
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 3.2;
+    ctx.lineCap = 'round';
+    for (let x = -54; x <= 54; x += 11) {
+      const strandLen = 95 + Math.sin(x * 0.3) * 24;
+      const strandSway = Math.sin(time * 3 + x * 0.1) * 14;
+      ctx.beginPath();
+      ctx.moveTo(x, -165);
+      ctx.quadraticCurveTo(x + strandSway, -165 + strandLen * 0.5, x + strandSway * 1.45, -165 + strandLen);
+      ctx.stroke();
+
+      // Leaf droplets on strands
+      ctx.fillStyle = '#86efac';
+      ctx.beginPath();
+      ctx.arc(x + strandSway * 1.45, -165 + strandLen, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 4. CITRUS / MEDITERRANEAN LEMON TREE (地中海繁花金黄柠檬树)
+  else if (variety === 'citrus_tree') {
+    // Curved sunlit trunk
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(-12, -120, 24, 120);
+
+    // Dense lush emerald crown
+    const citrusGreens = ['#166534', '#15803d', '#16a34a', '#22c55e'];
+    const crowns = [
+      { x: -36, y: -155, r: 44, c: 0 },
+      { x: 36, y: -155, r: 44, c: 1 },
+      { x: 0, y: -205, r: 54, c: 2 },
+      { x: -20, y: -185, r: 38, c: 3 },
+      { x: 22, y: -185, r: 38, c: 1 },
+    ];
+    crowns.forEach((cl) => {
+      ctx.fillStyle = citrusGreens[cl.c];
+      ctx.beginPath();
+      ctx.arc(cl.x + windSway * 0.5, cl.y, cl.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Ripe Golden Lemons hanging among leaves
+    const lemons = [
+      [-26, -160], [22, -175], [-10, -220], [30, -145], [-32, -130], [12, -195], [0, -150]
+    ];
+    lemons.forEach(([lx, ly]) => {
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.ellipse(lx + windSway * 0.5, ly, 6.5, 9, 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#15803d'; // green leaf cap
+      ctx.beginPath();
+      ctx.arc(lx + windSway * 0.5, ly - 7, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // White five-point citrus blossom stars
+    ctx.fillStyle = '#ffffff';
+    for (let f = 0; f < 6; f++) {
+      const fx = Math.sin(f * 2.1 + seed) * 40 + windSway * 0.5;
+      const fy = -180 + Math.cos(f * 2.1 + seed) * 35;
+      ctx.beginPath();
+      ctx.arc(fx, fy, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(fx, fy, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+    }
+  }
+
+  // 5. FRENCH PLANE / LINDEN TREE (法国悬铃木/梧桐 - 广阔斑驳树冠)
+  else {
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(-15, -125, 30, 125);
+    ctx.strokeStyle = '#92400e';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(-15, -125, 30, 125);
+
+    const greens = ['#15803d', '#16a34a', '#22c55e', '#86efac'];
+    const clumps = [
+      { x: -40, y: -150, r: 48, c: 0 },
+      { x: 40, y: -150, r: 48, c: 1 },
+      { x: 0, y: -205, r: 58, c: 2 },
+      { x: -26, y: -182, r: 40, c: 3 },
+      { x: 28, y: -182, r: 40, c: 1 },
+    ];
+    clumps.forEach((cl) => {
+      ctx.fillStyle = greens[cl.c];
+      ctx.beginPath();
+      ctx.arc(cl.x + windSway * 0.6, cl.y, cl.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Golden apples or berries scattered in crown
+    ctx.fillStyle = obs.flowerColor || '#ef4444';
+    const berries = [
+      [-30, -160], [24, -175], [-9, -220], [34, -145], [-38, -130], [12, -195]
+    ];
+    berries.forEach(([bx, by]) => {
+      ctx.beginPath();
+      ctx.arc(bx + windSway * 0.6, by, 6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  ctx.restore();
+}
+
+// Draw Procedural Street Flora & Planters (绣球花坛、薰衣草花槽、攀缘常春藤、陶土花钵、窗台花箱、悬挂花篮)
+export function drawProceduralPlant(
+  ctx: CanvasRenderingContext2D,
+  obs: Obstacle,
+  groundY: number,
+  time: number
+) {
+  ctx.save();
+  ctx.translate(obs.x + obs.width / 2, groundY);
+
+  const variety = obs.plantVariety || 'planter_hydrangea';
+  const windSway = Math.sin(time * 3 + obs.x * 0.1) * 2.5;
+  const seed = obs.plantSeed || (Math.abs(Math.floor(obs.x * 3.7)) % 1000) + 1;
+
+  // Helper for pot style fill
+  const potStyle = obs.potStyle || (seed % 3 === 0 ? 'stone' : seed % 3 === 1 ? 'terracotta' : 'wooden_crate');
+
+  // 1. HYDRANGEA FLOWERBED (法式绣球花坛 - 饱满团簇蓝粉绣球，程序化混色)
+  if (variety === 'planter_hydrangea') {
+    // Planter basin
+    if (potStyle === 'terracotta') {
+      ctx.fillStyle = '#c2410c';
+      ctx.beginPath();
+      ctx.roundRect(-30, -22, 60, 22, 4);
+      ctx.fill();
+      ctx.strokeStyle = '#9a3412';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#64748b';
+      ctx.beginPath();
+      ctx.roundRect(-30, -20, 60, 20, 4);
+      ctx.fill();
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+    }
+
+    // Dark green serrated foliage base
+    ctx.fillStyle = '#15803d';
+    ctx.beginPath();
+    ctx.ellipse(0, -24, 35, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Procedural Blossom Colors
+    const primaryColor = obs.bloomColor || (seed % 2 === 0 ? '#38bdf8' : '#f472b6');
+    const secondaryColor = obs.secondaryBloomColor || (seed % 2 === 0 ? '#c084fc' : '#fda4af');
+
+    const blooms = [
+      { x: -18, y: -34, r: 16, color: primaryColor },
+      { x: 18, y: -34, r: 16, color: secondaryColor },
+      { x: 0, y: -44, r: 18, color: seed % 3 === 0 ? '#a855f7' : '#60a5fa' },
+    ];
+    blooms.forEach((b) => {
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.arc(b.x + windSway, b.y, b.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Flower florets detailing
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.48)';
+      for (let f = 0; f < 5; f++) {
+        const ang = f * ((Math.PI * 2) / 5) + 0.2;
+        ctx.beginPath();
+        ctx.arc(b.x + windSway + Math.cos(ang) * (b.r * 0.52), b.y + Math.sin(ang) * (b.r * 0.52), 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  }
+
+  // 2. PROVENCE LAVENDER PLANTER (普罗旺斯薰衣草陶罐/木槽)
+  else if (variety === 'planter_lavender') {
+    ctx.fillStyle = '#c2410c';
+    ctx.beginPath();
+    ctx.moveTo(-18, 0);
+    ctx.lineTo(18, 0);
+    ctx.lineTo(22, -26);
+    ctx.lineTo(-22, -26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#9a3412';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Glazed rim
+    ctx.fillStyle = '#ea580c';
+    ctx.beginPath();
+    ctx.roundRect(-25, -30, 50, 6, 2);
+    ctx.fill();
+
+    // Purple lavender stalks
+    ctx.strokeStyle = '#15803d';
+    ctx.lineWidth = 1.8;
+    const stalkCount = 10;
+    for (let i = 0; i < stalkCount; i++) {
+      const ix = -16 + (i * 32) / (stalkCount - 1);
+      const h = 32 + Math.sin(i * 0.7 + seed) * 10;
+      const sway = Math.sin(time * 4 + i * 0.6) * 3.5;
+      ctx.beginPath();
+      ctx.moveTo(ix, -30);
+      ctx.lineTo(ix + sway, -30 - h);
+      ctx.stroke();
+
+      // Purple flower spike with multi-tier droplets
+      ctx.fillStyle = i % 2 === 0 ? '#8b5cf6' : '#a855f7';
+      ctx.beginPath();
+      ctx.ellipse(ix + sway, -30 - h + 7, 3.5, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#c084fc';
+      ctx.beginPath();
+      ctx.arc(ix + sway, -30 - h + 2, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 3. WALL CLIMBING IVY (外墙攀援常春藤)
+  else if (variety === 'wall_ivy') {
+    ctx.strokeStyle = '#14532d';
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(-18, -50, -6, -100);
+    ctx.quadraticCurveTo(18, -150, 6, -200);
+    ctx.stroke();
+
+    // Branching side tendrils
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-10, -75);
+    ctx.lineTo(-24, -95);
+    ctx.moveTo(10, -135);
+    ctx.lineTo(26, -155);
+    ctx.stroke();
+
+    // Heart-shaped green leaves with subtle shading
+    for (let y = -12; y > -200; y -= 16) {
+      const lx = Math.sin(y * 0.08 + seed) * 14;
+      ctx.fillStyle = y % 32 === 0 ? '#15803d' : '#22c55e';
+      ctx.beginPath();
+      ctx.arc(lx, y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#86efac';
+      ctx.beginPath();
+      ctx.arc(lx - 1.5, y - 1.5, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 4. TERRACOTTA POT WITH CITRUS OR TOPIARY (地中海陶土花钵)
+  else if (variety === 'terracotta_pot') {
+    // Warm terracotta urn pot
+    ctx.fillStyle = '#b45309';
+    ctx.beginPath();
+    ctx.moveTo(-16, 0);
+    ctx.lineTo(16, 0);
+    ctx.lineTo(20, -28);
+    ctx.lineTo(-20, -28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Urn rim
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath();
+    ctx.roundRect(-23, -32, 46, 6, 2);
+    ctx.fill();
+
+    // Lush topiary sphere
+    ctx.fillStyle = '#15803d';
+    ctx.beginPath();
+    ctx.arc(0, -48, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath();
+    ctx.arc(windSway * 0.4, -52, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sunny yellow lemons in pot
+    const potFruits = [[-8, -48], [8, -50], [0, -60], [-5, -38], [7, -40]];
+    potFruits.forEach(([fx, fy]) => {
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.ellipse(fx + windSway * 0.4, fy, 4, 5.5, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  // 5. WINDOW BOX / BALCONY PLANTER (窗台花箱 - 繁花垂挂)
+  else if (variety === 'window_box') {
+    // Wooden trough
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(-22, -18, 44, 18);
+    ctx.strokeStyle = '#451a03';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-22, -18, 44, 18);
+
+    // Trailing ivy tendrils over the edge
+    ctx.fillStyle = '#15803d';
+    ctx.beginPath();
+    ctx.arc(-14, -6, 6, 0, Math.PI * 2);
+    ctx.arc(14, -6, 6, 0, Math.PI * 2);
+    ctx.arc(0, -8, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Vibrant Red and Pink Geraniums
+    const flowerColors = ['#ef4444', '#f43f5e', '#ec4899', '#facc15'];
+    for (let i = 0; i < 6; i++) {
+      const fx = -16 + (i * 32) / 5 + windSway * 0.4;
+      const fy = -22 + Math.sin(i * 1.5) * 4;
+      ctx.fillStyle = flowerColors[i % flowerColors.length];
+      ctx.beginPath();
+      ctx.arc(fx, fy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 6. HANGING STREET BASKET (悬挂繁花吊篮)
+  else if (variety === 'hanging_basket') {
+    // Dark wrought iron basket bowl
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath();
+    ctx.arc(0, -10, 16, 0, Math.PI);
+    ctx.fill();
+
+    // Blossoms overflowing from basket
+    ctx.fillStyle = '#ec4899';
+    ctx.beginPath();
+    ctx.arc(-8, -14, 9, 0, Math.PI * 2);
+    ctx.arc(8, -14, 9, 0, Math.PI * 2);
+    ctx.arc(0, -18, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cascading trailing petunias
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-6, -8);
+    ctx.quadraticCurveTo(-10 + windSway, 0, -8 + windSway * 1.5, 12);
+    ctx.moveTo(6, -8);
+    ctx.quadraticCurveTo(10 + windSway, 0, 8 + windSway * 1.5, 12);
+    ctx.stroke();
+
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath();
+    ctx.arc(-8 + windSway * 1.5, 12, 3.5, 0, Math.PI * 2);
+    ctx.arc(8 + windSway * 1.5, 12, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 7. FLOWERING ROSE SHRUB (精致修剪月季花灌木 - Default)
+  else {
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(-20, -20, 40, 20);
+    ctx.strokeStyle = '#451a03';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-20, -20, 40, 20);
+
+    // Bush sphere
+    ctx.fillStyle = '#16a34a';
+    ctx.beginPath();
+    ctx.arc(0, -36, 25, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Multi-shade roses
+    const flowerHex = obs.bloomColor || '#ef4444';
+    const roses = [
+      { x: -12, y: -42, c: flowerHex },
+      { x: 12, y: -42, c: flowerHex },
+      { x: 0, y: -48, c: '#facc15' },
+      { x: -7, y: -28, c: '#f43f5e' },
+      { x: 9, y: -28, c: '#f59e0b' },
+      { x: 0, y: -34, c: flowerHex },
+    ];
+    roses.forEach((r) => {
+      ctx.fillStyle = r.c;
+      ctx.beginPath();
+      ctx.arc(r.x + windSway * 0.5, r.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.beginPath();
+      ctx.arc(r.x + windSway * 0.5, r.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
 
   ctx.restore();
 }
@@ -1306,6 +2047,8 @@ export function drawArchway(ctx: CanvasRenderingContext2D, x: number, y: number,
 
 // Draw Animated Town NPCs with Walking & Startle Reactions
 export function drawTownNPC(ctx: CanvasRenderingContext2D, npc: TownNPC, groundY: number, time: number) {
+  if (npc.indoorBuildingId) return; // Currently inside a building! Rendered inside the window/shop!
+
   ctx.save();
   ctx.translate(npc.x, groundY);
   ctx.scale(1.0, 1.0); // Harmonized human scale matching houses and street vehicles!
@@ -1314,30 +2057,585 @@ export function drawTownNPC(ctx: CanvasRenderingContext2D, npc: TownNPC, groundY
   const isWalking = npc.state === 'walking';
   const walkCycle = isWalking ? Math.sin(time * 10) * 6 : 0;
 
-  // 1. Grandpa on park bench
+  // 1. Grandpa on park bench (with breadcrumbs & hopping sparrows!)
   if (npc.type === 'grandpa_bench') {
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(-12, -38, 24, 26);
+    // Bench
+    ctx.fillStyle = '#166534'; // Parisian green park bench
+    ctx.fillRect(-18, -42, 36, 30);
+    ctx.fillStyle = '#14532d';
+    ctx.fillRect(-18, -34, 36, 4);
+    ctx.fillRect(-18, -22, 36, 4);
 
+    // Grandpa body
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(-10, -52, 20, 26);
+    // Face & mustache
     ctx.fillStyle = '#fed7aa';
     ctx.beginPath();
-    ctx.arc(0, -50, 13, 0, Math.PI * 2);
+    ctx.arc(0, -64, 12, 0, Math.PI * 2);
     ctx.fill();
-
-    ctx.fillStyle = '#166534';
-    ctx.beginPath();
-    ctx.ellipse(0, -62, 15, 7, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Mustache
     ctx.fillStyle = '#f8fafc';
     ctx.beginPath();
-    ctx.arc(-4, -48, 4, 0, Math.PI * 2);
-    ctx.arc(4, -48, 4, 0, Math.PI * 2);
+    ctx.arc(-4, -62, 4.5, 0, Math.PI * 2);
+    ctx.arc(4, -62, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Tweed flat cap
+    ctx.fillStyle = '#451a03';
+    ctx.beginPath();
+    ctx.ellipse(0, -74, 15, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Cane in hand
+    ctx.strokeStyle = '#92400e';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(12, -42);
+    ctx.lineTo(12, -2);
+    ctx.stroke();
+
+    // Breadcrumbs on cobblestones
+    ctx.fillStyle = '#fde68a';
+    ctx.fillRect(20, -3, 3, 2);
+    ctx.fillRect(26, -4, 2.5, 2);
+    ctx.fillRect(32, -3, 3, 2);
+
+    // Hopping Plump European Sparrow pecking crumbs! (Harmonious with flock & crow)
+    const sparrowHop = Math.abs(Math.sin(time * 8)) * 5;
+    ctx.save();
+    ctx.translate(34, -8 - sparrowHop);
+    // Plump body
+    ctx.fillStyle = '#9a5624';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 11, 7.5, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    // Pale buff breast
+    ctx.fillStyle = '#f5e8d3';
+    ctx.beginPath();
+    ctx.ellipse(3, 1, 7, 5, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    // Head with warm cap
+    ctx.fillStyle = '#78350f';
+    ctx.beginPath();
+    ctx.arc(7, -4, 6.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Beak
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.moveTo(12, -5);
+    ctx.lineTo(17, -3.5);
+    ctx.lineTo(12, -2);
+    ctx.closePath();
+    ctx.fill();
+    // Eye
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(8.5, -5, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    // Wing with cream wing bar
+    ctx.fillStyle = '#451a03';
+    ctx.beginPath();
+    ctx.ellipse(-2, -1, 7.5, 4.5, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fde68a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-5, -2);
+    ctx.lineTo(2, -1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 2. Street Artist / Painter at Easel (French Beret & Palette)
+  else if (npc.type === 'street_artist') {
+    // Legs walking or standing
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(-8 + walkCycle, -24, 7, 24);
+    ctx.fillRect(2 - walkCycle, -24, 7, 24);
+
+    // Blue Painter's Smock & Red Scarf
+    ctx.fillStyle = '#0284c7';
+    ctx.fillRect(-12, -58, 24, 34);
+    ctx.fillStyle = '#ef4444'; // red scarf
+    ctx.fillRect(-8, -58, 16, 6);
+
+    // Head
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -68, 12, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fillRect(-14, -26, 28, 14);
+    // Classic French Navy Beret
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.ellipse(0, -78, 16, 6, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-1, -85, 2, 4); // beret stalk
+
+    // Wooden Painter's Palette in left hand
+    ctx.fillStyle = '#b45309';
+    ctx.beginPath();
+    ctx.ellipse(-14, -46, 9, 6, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    // Paint daubs on palette
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(-17, -47, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.arc(-14, -49, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath();
+    ctx.arc(-11, -47, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Paintbrush in right hand
+    ctx.strokeStyle = '#ca8a04';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(8, -48);
+    ctx.lineTo(18, -54);
+    ctx.stroke();
+
+    // Wooden Tripod Easel with Canvas!
+    ctx.save();
+    ctx.translate(22, 0);
+    // Tripod legs
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -72);
+    ctx.lineTo(-12, 0);
+    ctx.moveTo(0, -72);
+    ctx.lineTo(12, 0);
+    ctx.moveTo(0, -72);
+    ctx.lineTo(0, 0);
+    ctx.stroke();
+    // Canvas board
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(-10, -68, 20, 24);
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(-10, -68, 20, 24);
+    // Miniature Landscape Oil Painting on Canvas!
+    ctx.fillStyle = '#38bdf8'; // sky
+    ctx.fillRect(-8, -66, 16, 10);
+    ctx.fillStyle = '#22c55e'; // green hill
+    ctx.beginPath();
+    ctx.arc(0, -54, 8, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#facc15'; // sun
+    ctx.beginPath();
+    ctx.arc(4, -62, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 3. Cafe Waiter balancing Silver Tray with Steaming Coffee & Croissant
+  else if (npc.type === 'cafe_waiter') {
+    // Brisk walking black trousers
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-8 + walkCycle, -24, 7, 24);
+    ctx.fillRect(2 - walkCycle, -24, 7, 24);
+
+    // Black Waistcoat & White Shirt with Black Bowtie
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-12, -58, 24, 34);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-12, -54, 8, 30);
+    ctx.fillRect(4, -54, 8, 30);
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.ellipse(-3, -56, 3, 2, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(3, -56, 3, 2, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Crisp White Bistro Apron
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(-10, -38, 20, 26);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-10, -38, 20, 26);
+
+    // Head with styled hair
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -68, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1e1b4b';
+    ctx.beginPath();
+    ctx.arc(0, -74, 12, Math.PI, 0);
+    ctx.fill();
+
+    // Right arm holding aloft a polished silver round tray!
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(10, -48);
+    ctx.lineTo(16, -62);
+    ctx.stroke();
+
+    // Polished Silver Tray
+    ctx.fillStyle = '#cbd5e1';
+    ctx.beginPath();
+    ctx.ellipse(18, -63, 16, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // White porcelain coffee cup with curling steam
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(12, -73, 8, 9);
+    ctx.fillStyle = '#78350f'; // coffee
+    ctx.beginPath();
+    ctx.ellipse(16, -73, 4, 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Curling steam
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    const steamWobble = Math.sin(time * 6) * 2;
+    ctx.moveTo(16, -75);
+    ctx.quadraticCurveTo(14 + steamWobble, -80, 16, -85);
+    ctx.stroke();
+
+    // Flaky Croissant on Tray!
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.ellipse(24, -66, 5, 3, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 4. Street Accordionist with Bellows & Floating Musical Notes
+  else if (npc.type === 'accordionist') {
+    // Legs
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(-8 + walkCycle, -24, 7, 24);
+    ctx.fillRect(2 - walkCycle, -24, 7, 24);
+
+    // Warm Mustard Cardigan & Checked Trousers
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(-12, -56, 24, 32);
+
+    // Head with French Cap
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -68, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#78350f';
+    ctx.beginPath();
+    ctx.ellipse(0, -78, 15, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Red Accordion with Expanding/Contracting Bellows!
+    const bellows = Math.sin(time * 7) * 4;
+    // Left bass box
+    ctx.fillStyle = '#dc2626';
+    ctx.fillRect(-18 - bellows, -54, 8, 24);
+    // Right treble keyboard
+    ctx.fillStyle = '#dc2626';
+    ctx.fillRect(10 + bellows, -54, 8, 24);
+    ctx.fillStyle = '#ffffff'; // piano keys
+    ctx.fillRect(10 + bellows, -52, 6, 20);
+    // Pleated white bellows
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    for (let bx = -10 - bellows; bx < 10 + bellows; bx += 3.5) {
+      ctx.moveTo(bx, -54);
+      ctx.lineTo(bx + 1.5, -42);
+      ctx.lineTo(bx, -30);
+    }
+    ctx.stroke();
+
+    // Floating Colorful Musical Notes (♪ ♫ ♩) soaring into air!
+    const noteBob1 = (time * 2) % 3;
+    const noteBob2 = (time * 2 + 1.5) % 3;
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 13px Fredoka, sans-serif';
+    ctx.fillText('♪', 14 + Math.sin(time * 3) * 6, -82 - noteBob1 * 18);
+    ctx.fillStyle = '#f43f5e';
+    ctx.fillText('♫', -14 + Math.cos(time * 3) * 6, -85 - noteBob2 * 18);
+  }
+
+  // 5. Dog Walker with cute Trotting Dachshund on Leash!
+  else if (npc.type === 'dog_walker') {
+    // Elegant Citizen in camel coat
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-8 + walkCycle, -24, 7, 24);
+    ctx.fillRect(2 - walkCycle, -24, 7, 24);
+
+    ctx.fillStyle = '#ca8a04'; // camel trench coat
+    ctx.fillRect(-12, -58, 24, 34);
+
+    // Head & Burgundy Hat
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -68, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#831843';
+    ctx.beginPath();
+    ctx.ellipse(0, -78, 16, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Leash stretching down from hand
+    const dogX = 28;
+    const dogY = -12;
+    ctx.strokeStyle = '#92400e';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(8, -45);
+    ctx.quadraticCurveTo(16, -20, dogX, dogY - 8);
+    ctx.stroke();
+
+    // Cute Little Dachshund Sausage Dog!
+    ctx.save();
+    ctx.translate(dogX, 0);
+    // Dog body
+    ctx.fillStyle = '#78350f';
+    ctx.beginPath();
+    ctx.roundRect(-4, -16, 20, 10, 4);
+    ctx.fill();
+    // Dog head & floppy ears
+    ctx.beginPath();
+    ctx.arc(16, -15, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#451a03'; // ear
+    ctx.beginPath();
+    ctx.ellipse(14, -13, 3, 6, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    // Snout
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(20, -14, 4, 3);
+    // Red collar
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(13, -17, 3, 8);
+    // Short stubby stepping legs
+    const dogStep = Math.sin(time * 14) * 3;
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(-1, -7);
+    ctx.lineTo(-1 + dogStep, 0);
+    ctx.moveTo(5, -7);
+    ctx.lineTo(5 - dogStep, 0);
+    ctx.moveTo(12, -7);
+    ctx.lineTo(12 + dogStep, 0);
+    ctx.moveTo(16, -7);
+    ctx.lineTo(16 - dogStep, 0);
+    ctx.stroke();
+    // Perky tail wagging
+    const tailWag = Math.sin(time * 18) * 4;
+    ctx.beginPath();
+    ctx.moveTo(-4, -14);
+    ctx.lineTo(-9, -18 + tailWag);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 6. Child Running Joyfully with Big Red Helium Balloon!
+  else if (npc.type === 'balloon_child') {
+    const kidCycle = Math.sin(time * 14) * 8; // energetic run!
+    // Shorts & little legs
+    ctx.fillStyle = '#0284c7';
+    ctx.fillRect(-6 + kidCycle, -18, 5, 18);
+    ctx.fillRect(2 - kidCycle, -18, 5, 18);
+
+    // Striped T-shirt
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(-10, -46, 20, 28);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-10, -42, 20, 4);
+    ctx.fillRect(-10, -32, 20, 4);
+
+    // Head with cap
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -56, 10, 0, Math.PI * 2);
+    ctx.fill();
+    // Backwards baseball cap
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(0, -60, 10, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(-12, -61, 6, 3); // visor facing back
+
+    // Raised arm holding balloon string
+    ctx.strokeStyle = '#fed7aa';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(6, -38);
+    ctx.lineTo(12, -54);
+    ctx.stroke();
+
+    // Floating Red Balloon on string!
+    const balloonSway = Math.sin(time * 5) * 5;
+    const balloonX = 14 + balloonSway;
+    const balloonY = -92;
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.8)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(12, -54);
+    ctx.quadraticCurveTo(10, -70, balloonX, balloonY + 12);
+    ctx.stroke();
+    // Balloon body
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.ellipse(balloonX, balloonY, 11, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Glossy reflection highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.beginPath();
+    ctx.ellipse(balloonX - 3.5, balloonY - 4, 3, 5, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Knot
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.moveTo(balloonX - 2, balloonY + 13);
+    ctx.lineTo(balloonX + 2, balloonY + 13);
+    ctx.lineTo(balloonX, balloonY + 16);
+    ctx.fill();
+  }
+
+  // 7. Town Policeman / Gendarme on Patrol with Whistle
+  else if (npc.type === 'policeman') {
+    // Navy Uniform Trousers
+    ctx.fillStyle = '#1e3a8a';
+    ctx.fillRect(-8 + walkCycle, -24, 7, 24);
+    ctx.fillRect(2 - walkCycle, -24, 7, 24);
+
+    // Double-breasted Navy Tunic with Shiny Brass Buttons
+    ctx.fillStyle = '#172554';
+    ctx.fillRect(-12, -58, 24, 34);
+    ctx.fillStyle = '#facc15'; // brass buttons
+    ctx.beginPath();
+    ctx.arc(-4, -50, 1.8, 0, Math.PI * 2);
+    ctx.arc(4, -50, 1.8, 0, Math.PI * 2);
+    ctx.arc(-4, -42, 1.8, 0, Math.PI * 2);
+    ctx.arc(4, -42, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Head & Mustache
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -68, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-4, -66, 8, 3); // handlebar mustache
+
+    // French Gendarme Kepi Hat
+    ctx.fillStyle = '#172554';
+    ctx.fillRect(-9, -82, 18, 10);
+    ctx.fillStyle = '#facc15'; // gold braid
+    ctx.fillRect(-9, -74, 18, 2);
+    ctx.fillStyle = '#0f172a'; // black leather visor
+    ctx.beginPath();
+    ctx.arc(0, -72, 11, 0, Math.PI);
+    ctx.fill();
+
+    // Twirling whistle on silver cord
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(6, -56);
+    ctx.lineTo(12, -44);
+    ctx.stroke();
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(10, -44, 4, 3);
+  }
+
+  // 8. Baker on Street with Steaming Wooden Peel of Croissants
+  else if (npc.type === 'baker_street') {
+    // Checked Trousers
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(-8 + walkCycle, -24, 7, 24);
+    ctx.fillRect(2 - walkCycle, -24, 7, 24);
+
+    // Double-breasted White Chef Jacket & Red Kerchief
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-12, -58, 24, 34);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(-6, -58, 12, 4);
+
+    // Head
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -68, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tall White Chef Toque
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-8, -88, 16, 16);
+    ctx.beginPath();
+    ctx.arc(0, -88, 10, Math.PI, 0);
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Wooden Baker's Peel held horizontally loaded with croissants!
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(4, -46, 26, 4);
+    ctx.fillRect(22, -50, 18, 12);
+    // Golden Croissants on peel!
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.ellipse(28, -52, 5, 3.5, 0.2, 0, Math.PI * 2);
+    ctx.ellipse(35, -52, 5, 3.5, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 9. Lady Shopper with Wicker Basket, Baguette & Sunflowers
+  else if (npc.type === 'lady_shopper') {
+    // Flowing Teal Skirt
+    ctx.fillStyle = '#0f766e';
+    ctx.beginPath();
+    ctx.moveTo(-14, -22);
+    ctx.lineTo(14, -22);
+    ctx.lineTo(8, -56);
+    ctx.lineTo(-8, -56);
+    ctx.closePath();
+    ctx.fill();
+
+    // Soft Cream Cardigan
+    ctx.fillStyle = '#fef3c7';
+    ctx.fillRect(-10, -56, 20, 24);
+
+    // Head
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -68, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Straw Boater Hat with Blue Ribbon
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.ellipse(0, -78, 16, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-9, -84, 18, 7);
+    ctx.fillStyle = '#0284c7'; // blue ribbon
+    ctx.fillRect(-9, -79, 18, 3);
+
+    // Wicker Shopping Basket on arm
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(8, -42, 14, 12);
+    ctx.strokeStyle = '#78350f';
+    ctx.strokeRect(8, -42, 14, 12);
+    // French golden baguette poking out
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.ellipse(13, -50, 3, 10, 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    // Sunflowers
+    ctx.fillStyle = '#eab308';
+    ctx.beginPath();
+    ctx.arc(18, -46, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#78350f';
+    ctx.beginPath();
+    ctx.arc(18, -46, 2, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   // 2. Walking Townsman with coat
@@ -1662,6 +2960,67 @@ export function drawTownNPC(ctx: CanvasRenderingContext2D, npc: TownNPC, groundY
     ctx.fill();
   }
 
+  // Emergent Speech / Social Dialogue Bubble
+  if (npc.speechText) {
+    ctx.save();
+    ctx.font = 'bold 9.5px Fredoka, sans-serif';
+    const textW = ctx.measureText(npc.speechText).width;
+    const bW = textW + 16;
+    const bH = 20;
+    const bubbleY = -118;
+
+    // Soft bubble shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.beginPath();
+    ctx.roundRect(-bW / 2 + 1, bubbleY - bH + 2, bW, bH, 6);
+    ctx.fill();
+
+    // Bubble body
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(-bW / 2, bubbleY - bH, bW, bH, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    // Little downward arrow / pointer
+    ctx.beginPath();
+    ctx.moveTo(-4, bubbleY);
+    ctx.lineTo(0, bubbleY + 5);
+    ctx.lineTo(4, bubbleY);
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.stroke();
+
+    // Text content
+    ctx.fillStyle = '#1e293b';
+    ctx.textAlign = 'center';
+    ctx.fillText(npc.speechText, 0, bubbleY - 6);
+    ctx.restore();
+  }
+
+  // Camera Flash Snapshot Animation
+  if (npc.cameraFlashTimer && npc.cameraFlashTimer > 0) {
+    ctx.save();
+    ctx.translate(14, -68);
+    const flashSize = 14 + (npc.cameraFlashTimer % 6) * 3;
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.85)';
+    ctx.beginPath();
+    ctx.arc(0, 0, flashSize, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-flashSize * 1.5, 0);
+    ctx.lineTo(flashSize * 1.5, 0);
+    ctx.moveTo(0, -flashSize * 1.5);
+    ctx.lineTo(0, flashSize * 1.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Citizen Nameplate above head (For Gazette & realism)
   if (npc.name && npc.type !== 'awning_cat') {
     ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
@@ -1669,6 +3028,177 @@ export function drawTownNPC(ctx: CanvasRenderingContext2D, npc: TownNPC, groundY
     ctx.textAlign = 'center';
     ctx.fillText(npc.name, 0, -96);
   }
+
+  ctx.restore();
+}
+
+// Draw Emergent Town Sparrows (小镇麻雀群自主行为渲染 - 尺寸协调饱满，告别微型昆虫感)
+export function drawTownSparrow(
+  ctx: CanvasRenderingContext2D,
+  sparrow: TownSparrow,
+  time: number
+) {
+  ctx.save();
+  ctx.translate(sparrow.x, sparrow.y);
+  if (sparrow.facing === -1) {
+    ctx.scale(-1, 1);
+  }
+
+  // Plump body with soft brownish-buff feather colors (Harmonious ~36px scale)
+  const isFlying = sparrow.state === 'flying' || sparrow.state === 'descending';
+  const wingCycle = isFlying ? Math.sin(time * 24 + sparrow.wingPhase) : 0;
+  const peckDip = sparrow.state === 'pecking' ? Math.sin(time * 12) * 2.5 : 0;
+
+  if (isFlying) {
+    const bankAngle = Math.max(-0.35, Math.min(0.35, (sparrow.vy || 0) * 0.08));
+    ctx.rotate(bankAngle);
+  }
+
+  // Soft shadow on ground or perch
+  if (!isFlying) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 13, 4.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Chirp musical notes floating up when perched or happy
+  if (sparrow.chirpTimer && sparrow.chirpTimer > 0) {
+    ctx.save();
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 9px Fredoka, sans-serif';
+    ctx.fillText('♪', 14, -20 - (40 - sparrow.chirpTimer) * 0.35);
+    ctx.restore();
+  }
+
+  // Tail feathers
+  ctx.fillStyle = '#5c2b0c';
+  ctx.beginPath();
+  ctx.moveTo(-8, -6 + peckDip);
+  ctx.lineTo(-19, -11 + peckDip * 0.5);
+  ctx.lineTo(-18, -4 + peckDip * 0.5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Round plump body
+  ctx.fillStyle = '#9a5624';
+  ctx.beginPath();
+  ctx.ellipse(0, -7 + peckDip, 13.5, 9.5, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pale buff chest/belly
+  ctx.fillStyle = '#f5e8d3';
+  ctx.beginPath();
+  ctx.ellipse(4, -5 + peckDip, 9, 7, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head with warm chestnut crown
+  ctx.fillStyle = '#78350f';
+  ctx.beginPath();
+  ctx.arc(8.5, -11 + peckDip * 1.5, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Cute golden-amber beak
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath();
+  ctx.moveTo(15, -12.5 + peckDip * 1.5);
+  ctx.lineTo(22, -10.5 + peckDip * 1.5);
+  ctx.lineTo(15, -8.5 + peckDip * 1.5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crisp black shiny eye with specular glint
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.arc(10.5, -12.5 + peckDip * 1.5, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(11.2, -13.2 + peckDip * 1.5, 0.9, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Wing (flapping if flying, tucked folded with double wing bars if perched or pecking)
+  ctx.fillStyle = '#451a03';
+  if (isFlying) {
+    ctx.save();
+    ctx.translate(-1, -9);
+    ctx.rotate(wingCycle * 0.9);
+    ctx.beginPath();
+    ctx.ellipse(0, -7, 6.5, 14, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fde68a';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.beginPath();
+    ctx.ellipse(-1, -8 + peckDip, 9.5, 6, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    // Double cream wing bar detailing
+    ctx.strokeStyle = '#fde68a';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-5, -9 + peckDip);
+    ctx.lineTo(4, -8 + peckDip);
+    ctx.moveTo(-4, -6 + peckDip);
+    ctx.lineTo(3, -5 + peckDip);
+    ctx.stroke();
+  }
+
+  // Little bird legs when on ground or perched
+  if (!isFlying) {
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-3, 1);
+    ctx.lineTo(-4, 5);
+    ctx.lineTo(-7, 5.5);
+    ctx.moveTo(3, 1);
+    ctx.lineTo(2, 5);
+    ctx.lineTo(-1, 5.5);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// Draw Dropped Physics Loot (抛物线弹跳与地面驻留掉落物)
+export function drawDroppedPhysicsItem(
+  ctx: CanvasRenderingContext2D,
+  item: DroppedPhysicsItem,
+  time: number
+) {
+  ctx.save();
+  ctx.translate(item.x, item.y);
+  ctx.rotate(item.rotation);
+
+  // Ground contact shadow
+  if (item.onGround) {
+    ctx.save();
+    ctx.rotate(-item.rotation);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.beginPath();
+    ctx.ellipse(0, 8, 12, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Golden sparkle glint
+  const pulse = Math.sin(time * 6 + item.x) * 0.25 + 0.75;
+  ctx.save();
+  ctx.strokeStyle = `rgba(254, 240, 138, ${pulse})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, 14, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Render loot icon / graphic using standard configs
+  const config = item.config;
+  ctx.font = '22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(config.icon || '✨', 0, 0);
 
   ctx.restore();
 }
@@ -2158,6 +3688,65 @@ export function drawTrafficVehicle(
     ctx.fill();
   });
 
+  // Windshield Wiper Animation (when splattered by poop or cleaning)
+  if (veh.wiperTimer && veh.wiperTimer > 0) {
+    const wiperAngle = Math.sin((veh.wiperPhase || 0) * 8) * 0.8;
+    const windshieldX = w / 2 - 28;
+    const windshieldY = -h + 20;
+    ctx.save();
+    ctx.translate(windshieldX, windshieldY);
+    ctx.rotate(wiperAngle);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -16);
+    ctx.stroke();
+    // Wiper blade rubber line
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-3, -16);
+    ctx.lineTo(3, -16);
+    ctx.stroke();
+    // Water spray mist
+    ctx.fillStyle = 'rgba(224, 242, 254, 0.7)';
+    ctx.beginPath();
+    ctx.arc(0, -10, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Rear Brake Lights Glow (Red alert when braking/yielding)
+  if (veh.isBraking) {
+    ctx.save();
+    ctx.fillStyle = '#ef4444';
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(-w / 2 + 3, -16, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Courteous Yield Indicator Bubble
+  if (veh.yieldReason) {
+    ctx.save();
+    ctx.font = 'bold 9px Fredoka, sans-serif';
+    const text = veh.yieldReason;
+    const textW = ctx.measureText(text).width;
+    const bW = textW + 14;
+    const bY = -h - 18;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.beginPath();
+    ctx.roundRect(-bW / 2, bY, bW, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = '#fef08a';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, 0, bY + 11.5);
+    ctx.restore();
+  }
+
   ctx.restore();
 }
 
@@ -2509,16 +4098,16 @@ export function drawCrowPlayer(ctx: CanvasRenderingContext2D, player: CrowPlayer
   const isPerched = player.state === 'PERCHED';
   const isInvincible = player.invincibleTimer > 0;
 
-  // Scale multiplier: 1.35x larger!
-  ctx.scale(1.35, 1.35);
+  // Harmonious Bird Scale (Heroic presence without monster gigantism)
+  ctx.scale(1.0, 1.0);
 
   // Invincibility aura
   if (isInvincible) {
     ctx.save();
     ctx.strokeStyle = `rgba(251, 191, 36, ${0.5 + Math.sin(time * 15) * 0.4})`;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.arc(0, 0, 36, 0, Math.PI * 2);
+    ctx.arc(0, 0, 28, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -2528,31 +4117,31 @@ export function drawCrowPlayer(ctx: CanvasRenderingContext2D, player: CrowPlayer
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(-6, 12);
-    ctx.lineTo(-8, 22);
-    ctx.lineTo(-12, 23);
-    ctx.moveTo(6, 12);
-    ctx.lineTo(4, 22);
-    ctx.lineTo(0, 23);
+    ctx.moveTo(-5, 9);
+    ctx.lineTo(-7, 18);
+    ctx.lineTo(-11, 19);
+    ctx.moveTo(5, 9);
+    ctx.lineTo(3, 18);
+    ctx.lineTo(-1, 19);
     ctx.stroke();
   }
 
   // Bird Body
   ctx.fillStyle = bird.color;
 
-  // Tail feathers
+  // Tail feathers (Harmonious sleek length)
   ctx.beginPath();
-  ctx.moveTo(-18, 0);
-  ctx.lineTo(-38, -6);
-  ctx.lineTo(-36, 4);
-  ctx.lineTo(-38, 12);
-  ctx.lineTo(-18, 8);
+  ctx.moveTo(-12, 0);
+  ctx.lineTo(-24, -4);
+  ctx.lineTo(-22, 2);
+  ctx.lineTo(-24, 7);
+  ctx.lineTo(-12, 5);
   ctx.closePath();
   ctx.fill();
 
-  // Plump body
+  // Plump body (Harmonious ~55px hero scale, balanced with 36px sparrows & 92px humans)
   ctx.beginPath();
-  ctx.ellipse(0, 0, 26, 18, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 17.5, 12, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Wings (Snappier, faster flap cycles!)
@@ -2563,22 +4152,22 @@ export function drawCrowPlayer(ctx: CanvasRenderingContext2D, player: CrowPlayer
   if (isPerched) {
     // Folded wings resting on side
     ctx.beginPath();
-    ctx.ellipse(0, 0, 20, 10, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 13.5, 7, -0.2, 0, Math.PI * 2);
     ctx.fill();
   } else if (player.state === 'DIVING') {
     // Tucked back aerodynamics
     ctx.beginPath();
-    ctx.moveTo(-6, -4);
-    ctx.lineTo(-32, -18);
-    ctx.lineTo(-18, 4);
+    ctx.moveTo(-4, -2);
+    ctx.lineTo(-20, -11);
+    ctx.lineTo(-11, 2);
     ctx.closePath();
     ctx.fill();
   } else {
     // Flapping snappily
     ctx.beginPath();
-    ctx.moveTo(-4, -6);
-    ctx.quadraticCurveTo(0, -28 * wingFlap - 6, 20, -18 * wingFlap - 4);
-    ctx.quadraticCurveTo(4, 2, -4, 0);
+    ctx.moveTo(-2, -4);
+    ctx.quadraticCurveTo(0, -19 * wingFlap - 4, 14, -12 * wingFlap - 2);
+    ctx.quadraticCurveTo(3, 2, -2, 0);
     ctx.closePath();
     ctx.fill();
   }
@@ -2587,30 +4176,34 @@ export function drawCrowPlayer(ctx: CanvasRenderingContext2D, player: CrowPlayer
   // Head
   ctx.fillStyle = bird.color;
   ctx.beginPath();
-  ctx.arc(16, -6, 14, 0, Math.PI * 2);
+  ctx.arc(10.5, -4, 9.5, 0, Math.PI * 2);
   ctx.fill();
 
   // Large Naif Eye
   ctx.fillStyle = bird.eyeColor;
   ctx.beginPath();
-  ctx.arc(19, -9, 6.5, 0, Math.PI * 2);
+  ctx.arc(12, -6, 4.2, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#0f172a';
-  ctx.lineWidth = 1.2;
+  ctx.lineWidth = 1.1;
   ctx.stroke();
 
   if (isStunned || player.state === 'TUMBLING') {
     ctx.strokeStyle = '#dc2626';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
     // Dizzy spiral / cross eyes
-    ctx.arc(19, -9, 4.5, time * 12, time * 12 + Math.PI * 1.5);
+    ctx.arc(12, -6, 3, time * 12, time * 12 + Math.PI * 1.5);
     ctx.stroke();
   } else {
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
-    const pupilSize = player.state === 'DIVING' ? 3.5 : 2.5;
-    ctx.arc(20, -9, pupilSize, 0, Math.PI * 2);
+    const pupilSize = player.state === 'DIVING' ? 2.4 : 1.8;
+    ctx.arc(13, -6, pupilSize, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(13.8, -6.8, 0.7, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -2619,7 +4212,7 @@ export function drawCrowPlayer(ctx: CanvasRenderingContext2D, player: CrowPlayer
     // Comic blue sweat drop flying off forehead
     ctx.fillStyle = '#38bdf8';
     ctx.beginPath();
-    ctx.ellipse(12, -22 + Math.sin(time * 12) * 2, 3, 5, 0.3, 0, Math.PI * 2);
+    ctx.ellipse(10, -18 + Math.sin(time * 12) * 2, 2.5, 4.5, 0.3, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = '#bae6fd';
     ctx.lineWidth = 1;
@@ -2628,17 +4221,17 @@ export function drawCrowPlayer(ctx: CanvasRenderingContext2D, player: CrowPlayer
     // Panting little pink tongue
     ctx.fillStyle = '#f43f5e';
     ctx.beginPath();
-    ctx.arc(32, 2, 3.5, 0, Math.PI);
+    ctx.arc(25, 2, 3, 0, Math.PI);
     ctx.fill();
   }
 
   // Sharp Beak
   ctx.fillStyle = bird.beakColor;
   ctx.beginPath();
-  const beakOpen = player.state === 'DIVING' ? 3 : 0;
-  ctx.moveTo(26, -11);
-  ctx.lineTo(44, -5);
-  ctx.lineTo(27, 2 + beakOpen);
+  const beakOpen = player.state === 'DIVING' ? 2.5 : 0;
+  ctx.moveTo(19, -9);
+  ctx.lineTo(33, -4);
+  ctx.lineTo(20, 2 + beakOpen);
   ctx.closePath();
   ctx.fill();
 

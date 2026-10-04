@@ -71,10 +71,21 @@ export interface ActiveLoot {
   contextOwnerId?: string;
 }
 
+export type NPCBehaviorState =
+  | 'street_roaming'
+  | 'seeking_door'
+  | 'entering_door'
+  | 'inside_room'
+  | 'window_watching'
+  | 'exiting_door'
+  | 'sitting_bench'
+  | 'fleeing_panic';
+
 export interface TownNPC {
   id: string;
   name: string; // Citizen name for Town Gazette newspaper!
   x: number;
+  y?: number;
   targetX: number;
   speed: number;
   direction: 1 | -1;
@@ -89,9 +100,26 @@ export interface TownNPC {
     | 'lady_parasol'
     | 'girl_coffee'
     | 'gentleman_tulips'
-    | 'girl_letter';
+    | 'girl_letter'
+    | 'street_artist'
+    | 'cafe_waiter'
+    | 'accordionist'
+    | 'dog_walker'
+    | 'balloon_child'
+    | 'lady_shopper'
+    | 'policeman'
+    | 'baker_street';
   coatColor: string; // for poop contrast checking: 'dark' or 'light'
   state: 'calm' | 'walking' | 'startled';
+  behaviorState?: NPCBehaviorState;
+  indoorBuildingId?: string;
+  indoorFloor?: number; // 0 = ground floor shop, 1 = 2nd floor, 2 = 3rd floor
+  indoorTimer?: number;
+  indoorActivity?: 'reading' | 'baking' | 'drinking_tea' | 'looking_out' | 'sleeping' | 'examining_merchandise';
+  targetDoorX?: number;
+  homeBuildingId?: string;
+  favoriteShopId?: string;
+  routineTimer?: number;
   actionState?:
     | 'idle'
     | 'walking'
@@ -115,6 +143,52 @@ export interface TownNPC {
   hasPoopOnHead?: boolean;
   poopColor?: 'white' | 'black';
   windowFloor?: number;
+  lostBalloon?: boolean;
+  dogExcited?: boolean;
+  dogBarkTimer?: number;
+  talkingWithId?: string;
+  talkTimer?: number;
+  speechText?: string;
+  speechTimer?: number;
+  lookUpTimer?: number;
+  cameraFlashTimer?: number;
+  clappingTimer?: number;
+  isShelteringUnderId?: string;
+}
+
+export interface TownSparrow {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  facing: 1 | -1;
+  wingPhase: number;
+  state: 'pecking' | 'perched' | 'flying' | 'descending';
+  peckTimer: number;
+  flyTimer: number;
+  targetX?: number;
+  targetY?: number;
+  targetLandingY?: number;
+  perchType?: 'ground' | 'roof' | 'bench' | 'fence' | 'lamp' | 'awning';
+  perchSurfaceY?: number;
+  perchTimer?: number;
+  chirpTimer?: number;
+  isFleeing?: boolean;
+}
+
+export interface DroppedPhysicsItem {
+  id: string;
+  config: LootItemConfig;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  bounceCount: number;
+  onGround: boolean;
+  lifeTimer: number;
+  rotation: number;
+  vRot: number;
 }
 
 export type TrafficVehicleType = 'classic_sedan' | 'school_bus' | 'police_car' | 'postal_van' | 'delivery_truck' | 'bicycle_rider';
@@ -126,7 +200,10 @@ export interface TownTrafficVehicle {
   width: number;
   height: number;
   speed: number;
+  currentSpeed: number;
+  targetSpeed: number;
   direction: 1 | -1;
+  lane: 'near' | 'far'; // 'near' = Eastbound (+1) foreground lane, 'far' = Westbound (-1) back lane
   type: TrafficVehicleType;
   name: string;
   color: string;
@@ -135,6 +212,11 @@ export interface TownTrafficVehicle {
   poopDecals: { offsetX: number; offsetY: number; color: 'white' | 'black'; size: number }[];
   honkTimer: number;
   sirenPhase: number;
+  wiperTimer?: number;
+  wiperPhase?: number;
+  isBraking?: boolean;
+  yieldReason?: string;
+  stuckTimer?: number;
 }
 
 export interface TownNewsHeadline {
@@ -152,7 +234,16 @@ export interface Obstacle {
   y: number;
   width: number;
   height: number;
-  type: 'glass_storefront' | 'archway' | 'tree' | 'fountain' | 'cafe_table' | 'mailbox' | 'vintage_car' | 'streetlamp';
+  type:
+    | 'glass_storefront'
+    | 'archway'
+    | 'tree'
+    | 'fountain'
+    | 'cafe_table'
+    | 'mailbox'
+    | 'vintage_car'
+    | 'streetlamp'
+    | 'plant';
   passable: boolean;
   opacity?: number;
   name: string;
@@ -160,6 +251,24 @@ export interface Obstacle {
   isDark?: boolean;
   hasPoopOnRoof?: boolean;
   poopColor?: 'white' | 'black';
+  treeVariety?: 'french_plane' | 'cherry_blossom' | 'cypress' | 'weeping_willow' | 'citrus_tree';
+  flowerColor?: string;
+  foliageColor?: string;
+  canopyWidth?: number;
+  flowerCount?: number;
+  plantVariety?:
+    | 'planter_hydrangea'
+    | 'planter_lavender'
+    | 'wall_ivy'
+    | 'flowering_shrub'
+    | 'terracotta_pot'
+    | 'window_box'
+    | 'hanging_basket';
+  plantSeed?: number;
+  bloomColor?: string;
+  secondaryBloomColor?: string;
+  potStyle?: 'terracotta' | 'stone' | 'wooden_crate' | 'glazed_blue';
+  foliageShade?: string;
 }
 
 export interface PoopProjectile {
@@ -297,6 +406,7 @@ export interface CrowPlayer {
   dragCurrentX: number;
   dragCurrentY: number;
   perchSurface?: { y: number; name: string };
+  isLandingDescent?: boolean;
   stunTimer: number;
   invincibleTimer: number;
   speedBoostTimer: number;
@@ -330,6 +440,7 @@ export interface BackgroundBuilding {
 }
 
 export interface TownBuilding {
+  id: string;
   x: number;
   width: number;
   height: number;
@@ -346,9 +457,12 @@ export interface TownBuilding {
     occupant?: 'grandpa' | 'girl' | 'baker' | 'cat' | 'reader' | 'lady';
     shutterColor?: string;
     flowerBox?: boolean;
+    shuttersClosed?: boolean;
+    catHeadAngle?: number;
   }[];
   type: 'bakery' | 'clocktower' | 'cafe' | 'residence' | 'bookshop' | 'florist';
   signText?: string;
+  shopName?: string;
   hasAwning?: boolean;
   awningColor?: string;
   hasPastryShowcase?: boolean; // Fruit tarts, eclairs, macarons like Sara Nicely illustration!
@@ -358,4 +472,10 @@ export interface TownBuilding {
   hasGlassStorefront?: boolean; // Realistic ground level storefront glass!
   stories?: number; // 1, 2, 3 or 4 stories
   embeddedGlassSide?: 'left' | 'right'; // Embedded side glass conservatory / showcase
+  doorX?: number;
+  doorWidth?: number;
+  doorHeight?: number;
+  doorOpenProgress?: number; // 0 = closed, 1 = fully open
+  interiorWallpaper?: string;
+  interiorLight?: string;
 }
